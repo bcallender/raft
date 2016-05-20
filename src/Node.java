@@ -20,8 +20,7 @@ public class Node {
     private boolean connected;
     ZMQ.Socket subSock;
     ZMQ.Socket reqSock;
-    ZMQQueue sub;
-    ZLoop loop;
+    ZMQ.Poller poller;
     Map<String, String> store;
 
     public Node(List<String> peers, String nodeName, String pubEndpoint, String routerEndpoint) {
@@ -31,31 +30,62 @@ public class Node {
         this.routerEndpoint = routerEndpoint;
         this.context = new ZContext();
         this.connected = false;
-        this.loop = new ZLoop();
 
         subSock = this.context.createSocket(ZMQ.SUB);
         subSock.connect(pubEndpoint);
         subSock.subscribe(nodeName.getBytes());
         subSock.setIdentity(nodeName.getBytes());
 
+        this.poller = new ZMQ.Poller(2);
+        this.poller.register(subSock, ZMQ.Poller.POLLIN);
+
+
         reqSock = this.context.createSocket(ZMQ.REQ);
         reqSock.connect(routerEndpoint);
         reqSock.setIdentity(nodeName.getBytes());
+        this.poller.register(reqSock, ZMQ.Poller.POLLIN);
+
 
         this.debug = true;
         this.store = new HashMap<>();
 
-        String msg = "";
-        while (!msg.equalsIgnoreCase("END")) {
 
-            msg = new String(subSock.recv(0));
-            System.out.println(msg);
+    }
+
+    public void handleBrokerMessage(ZMsg message){
+
+    }
+
+    public void handleMessage(ZMsg message) {
+        assert(message.size() == 3);
+
+
+    }
+
+
+
+    public void start() {
+        while(true) {
+            poller.poll();
+
+            //subSock registered at index '0'
+            if( poller.pollin(0)) {
+               ZMsg msg = ZMsg.recvMsg(subSock, ZMQ.DONTWAIT);
+                handleMessage(msg);
+            }
+
+            //reqSock registered at index '1'
+            if( poller.pollin(1)) {
+                ZMsg msg = ZMsg.recvMsg(reqSock, ZMQ.DONTWAIT);
+                handleBrokerMessage(msg);
+            }
+
         }
+    }
 
-
-
-
-
+    public void shutdown(){
+        this.subSock.close();
+        this.reqSock.close();
     }
 
 
