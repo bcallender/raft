@@ -1,9 +1,11 @@
 
 
+import org.json.JSONObject;
 import org.zeromq.ZContext;
 import org.zeromq.ZMQ;
 import org.zeromq.ZMsg;
 
+import java.nio.charset.Charset;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -58,8 +60,78 @@ public class Node {
 
     }
 
+    public void logDebug(String message){
+        if(this.debug)
+            System.out.println(message);
+    }
+
+    public void log(String message){
+            System.out.println(message);
+    }
+
+    public void sendToBroker(JSONObject message){
+        this.reqSock.send(message.toString().getBytes(Charset.defaultCharset()));
+        logDebug(String.format("Sent Message %s", message.toString()));
+
+    }
+
     public void handleMessage(ZMsg message) {
         assert(message.size() == 3);
+        JSONObject msg = new JSONObject(message.getLast().toString());
+        MessageType type = MessageType.safeValueOf(msg.getString("type"));
+
+        switch (type) {
+            case GET:
+                String k = msg.getString("key");
+                JSONObject m = new JSONObject();
+                if(store.containsKey(k)) {
+                    String val = store.get(k);
+                    m.put("type", "getResponse");
+                    m.put("id", msg.get("id"));
+                    m.put("k", k);
+                    m.put("v", val);
+                } else {
+                    m.put("type", "getResponse");
+                    m.put("id", msg.get("id"));
+                    m.put("error", String.format("No such key: %s", k));
+
+                }
+                sendToBroker(m);
+                break;
+            case DUPL:
+                String key = msg.getString("key");
+                String value = msg.getString("value");
+                store.put(key, value);
+                break;
+            case SET:
+                key = msg.getString("key");
+                value = msg.getString("value");
+                store.put(key, value);
+                for(String peer : peers){
+                    JSONObject dupl = new JSONObject();
+                    dupl.put("type", MessageType.DUPL);
+                    dupl.put("destination", peer);
+                    dupl.put("key", key);
+                    dupl.put("value", value);
+                    sendToBroker(dupl);
+                }
+                JSONObject setResponse = new JSONObject();
+                setResponse.put("type", "setResponse");
+                setResponse.put("id", msg.get("id"));
+                setResponse.put("key", key);
+                setResponse.put("value", value);
+                sendToBroker(setResponse);
+                break;
+            case HELLO:
+                if(!this.connected){
+                    this.connected = true;
+                    JSONObject hr = new JSONObject(String.format("{'type': 'helloResponse', 'source': %s}", this.nodeName));
+                    sendToBroker(hr);
+                    log("Node Running");
+                }
+            case UNKNOWN:
+        }
+
 
 
     }
