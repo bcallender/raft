@@ -3,7 +3,7 @@ import java.util.List;
 
 public class AppendEntriesMessageBuilder {
     private final MessageType type = MessageType.APPEND_ENTRIES;
-    private List<String> destination = new ArrayList<>();
+    private String destination = new ArrayList<>();
     private int id;
     private String source;
     private int term;
@@ -13,7 +13,7 @@ public class AppendEntriesMessageBuilder {
     private List<Entry> entries = new ArrayList<>();
     private int leaderCommit;
 
-    public AppendEntriesMessageBuilder setDestination(List<String> destination) {
+    public AppendEntriesMessageBuilder setDestination(String destination) {
         this.destination = destination;
         return this;
     }

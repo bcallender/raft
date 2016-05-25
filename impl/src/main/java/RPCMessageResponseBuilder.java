@@ -1,8 +1,6 @@
-import java.util.List;
-
 public class RPCMessageResponseBuilder {
     private MessageType type;
-    private List<String> destination;
+    private String destination;
     private int id;
     private String source;
     private int term;
@@ -13,7 +11,7 @@ public class RPCMessageResponseBuilder {
         return this;
     }
 
-    public RPCMessageResponseBuilder setDestination(List<String> destination) {
+    public RPCMessageResponseBuilder setDestination(String destination) {
         this.destination = destination;
         return this;
     }

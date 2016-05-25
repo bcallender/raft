@@ -1,8 +1,6 @@
-import java.util.List;
-
 public class RequestVoteMessageBuilder {
     private final MessageType type = MessageType.REQUEST_VOTE;
-    private List<String> destination;
+    private String destination;
     private int id;
     private String source;
     private int term;
@@ -10,7 +8,7 @@ public class RequestVoteMessageBuilder {
     private int lastLogIndex;
     private int lastLogTerm;
 
-    public RequestVoteMessageBuilder setDestination(List<String> destination) {
+    public RequestVoteMessageBuilder setDestination(String destination) {
         this.destination = destination;
         return this;
     }

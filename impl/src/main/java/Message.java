@@ -2,7 +2,6 @@ import com.google.gson.Gson;
 
 import java.io.Serializable;
 import java.nio.charset.Charset;
-import java.util.List;
 
 /**
  * Abstract message class for attributes that will be a part of any message (type, destination, id, source).
@@ -10,11 +9,11 @@ import java.util.List;
 public abstract class Message implements Serializable {
 
     MessageType type;
-    List<String> destination;
+    String destination;
     int id;
     String source;
 
-    public Message(MessageType type, List<String> destination, int id, String source) {
+    public Message(MessageType type, String destination, int id, String source) {
         this.type = type;
         this.destination = destination;
         this.id = id;
