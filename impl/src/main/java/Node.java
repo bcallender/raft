@@ -14,11 +14,11 @@ import java.util.Map;
  */
 public class Node {
 
-    ZContext context;
-    ZMQ.Socket subSock;
-    ZMQ.Socket reqSock;
-    ZMQ.Poller poller;
-    Map<String, String> store;
+    private ZContext context;
+    private ZMQ.Socket subSock;
+    private ZMQ.Socket reqSock;
+    private ZMQ.Poller poller;
+    private Map<String, String> store;
     private String nodeName;
     private String pubEndpoint;
     private String routerEndpoint;
@@ -71,7 +71,7 @@ public class Node {
     }
 
     public void sendToBroker(byte[] message) {
-        byte[] nullFrame = new byte[0];
+        byte[] nullFrame = new byte[0]; //need to send a null frame with DEALER to emulate REQ envelope
         this.reqSock.send(nullFrame, ZMQ.SNDMORE);
         this.reqSock.send(message);
 
