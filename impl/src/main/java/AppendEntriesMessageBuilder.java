@@ -3,7 +3,7 @@ import java.util.List;
 
 public class AppendEntriesMessageBuilder {
     private final MessageType type = MessageType.APPEND_ENTRIES;
-    private String destination = new ArrayList<>();
+    private String destination;
     private int id;
     private String source;
     private int term;
