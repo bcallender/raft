@@ -8,12 +8,17 @@ import java.nio.charset.Charset;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Created by brandon on 5/13/16.
  */
 public class Node {
 
+    private final ScheduledExecutorService executorService = Executors.newScheduledThreadPool(1);
     private ZContext context;
     private ZMQ.Socket subSock;
     private ZMQ.Socket reqSock;
@@ -53,6 +58,12 @@ public class Node {
         this.debug = true;
         this.store = new HashMap<>();
         this.gson = new Gson();
+
+        final ScheduledFuture<?> heartBeatTimeout =
+                this.executorService.scheduleAtFixedRate(new HeartbeatSender(), 175, 175, TimeUnit.MILLISECONDS);
+
+
+
 
 
     }
