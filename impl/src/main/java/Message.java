@@ -5,7 +5,7 @@ import java.nio.charset.Charset;
 import java.util.List;
 
 /**
- * Created by brandon on 5/24/16.
+ * Abstract message class for attributes that will be a part of any message (type, destination, id, source).
  */
 public abstract class Message implements Serializable {
 
@@ -22,6 +22,7 @@ public abstract class Message implements Serializable {
 
     }
 
+    //all message types can be serialized into JSON
     public byte[] serialize(Gson gson) {
         return gson.toJson(this).getBytes(Charset.defaultCharset());
     }

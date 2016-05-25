@@ -44,10 +44,10 @@ public class Node {
         this.poller.register(subSock, ZMQ.Poller.POLLIN);
 
 
-        reqSock = this.context.createSocket(ZMQ.REQ);
+        reqSock = this.context.createSocket(ZMQ.DEALER);
         reqSock.connect(routerEndpoint);
         reqSock.setIdentity(nodeName.getBytes());
-        this.poller.register(reqSock, ZMQ.Poller.POLLIN);
+        this.poller.register(reqSock);
 
 
         this.debug = true;
@@ -71,8 +71,12 @@ public class Node {
     }
 
     public void sendToBroker(byte[] message) {
+        byte[] nullFrame = new byte[0];
+        this.reqSock.send(nullFrame, ZMQ.SNDMORE);
         this.reqSock.send(message);
+
         logDebug(String.format("Sent Message %s", new String(message, Charset.defaultCharset())));
+
 
     }
 
