@@ -122,7 +122,7 @@ public class Node {
                     sendToBroker(dupl.toString().getBytes());
                 }
                 JSONObject setResponse = new JSONObject();
-                setResponse.put("type", "setResponse")
+                setResponse.put("type", MessageType.SET_RESPONSE)
                         .put("id", msg.get("id"))
                         .put("key", key)
                         .put("value", value);
