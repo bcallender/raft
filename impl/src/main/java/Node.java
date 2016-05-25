@@ -1,5 +1,4 @@
-
-
+import com.google.gson.Gson;
 import org.json.JSONObject;
 import org.zeromq.ZContext;
 import org.zeromq.ZMQ;
@@ -26,6 +25,7 @@ public class Node {
     private List<String> peers;
     private boolean debug;
     private boolean connected;
+    private Gson gson;
 
     public Node(List<String> peers, String nodeName, String pubEndpoint, String routerEndpoint) {
         this.peers = peers;
@@ -52,6 +52,7 @@ public class Node {
 
         this.debug = true;
         this.store = new HashMap<>();
+        this.gson = new Gson();
 
 
     }
@@ -113,7 +114,7 @@ public class Node {
                             .put("destination", peer)
                             .put("key", key)
                             .put("value", value);
-                    sendToBroker(dupl);
+                    //sendToBroker(dupl);
                 }
                 JSONObject setResponse = new JSONObject();
                 setResponse.put("type", "setResponse")
@@ -121,6 +122,7 @@ public class Node {
                         .put("key", key)
                         .put("value", value);
                 sendToBroker(setResponse);
+
                 break;
             case HELLO:
                 if (!this.connected) {
