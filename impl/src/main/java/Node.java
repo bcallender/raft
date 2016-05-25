@@ -83,7 +83,7 @@ public class Node {
     public void handleMessage(ZMsg message) {
         assert (message.size() == 3);
         JSONObject msg = new JSONObject(message.getLast().toString());
-        MessageType type = MessageType.safeValueOf(msg.getString("type"));
+        MessageType type = MessageType.parse(msg.getString("type"));
 
         switch (type) {
             case GET:

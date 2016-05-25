@@ -9,13 +9,13 @@ import java.util.List;
  */
 public class AppendEntriesMessage extends Message implements Serializable {
     int term;
-    int leaderId;
+    String leaderId;
     int prevLogIndex;
     int prevLogTerm;
     List<Entry> entries;
     int leaderCommit;
 
-    public AppendEntriesMessage(MessageType type, List<String> destination, int id, String source, int term, int leaderId, int prevLogIndex, int prevLogTerm, List<Entry> entries, int leaderCommit) {
+    public AppendEntriesMessage(MessageType type, List<String> destination, int id, String source, int term, String leaderId, int prevLogIndex, int prevLogTerm, List<Entry> entries, int leaderCommit) {
         super(type, destination, id, source);
         this.term = term;
         this.leaderId = leaderId;

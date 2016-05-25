@@ -10,11 +10,11 @@ import java.util.List;
 public class RequestVoteMessage extends Message implements Serializable {
 
     private int term;
-    private int candidateId;
+    private String candidateId;
     private int lastLogIndex;
     private int lastLogTerm;
 
-    public RequestVoteMessage(MessageType type, List<String> destination, int id, String source, int term, int candidateId, int lastLogIndex, int lastLogTerm) {
+    public RequestVoteMessage(MessageType type, List<String> destination, int id, String source, int term, String candidateId, int lastLogIndex, int lastLogTerm) {
         super(type, destination, id, source);
         this.term = term;
         this.candidateId = candidateId;

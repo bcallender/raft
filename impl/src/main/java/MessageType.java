@@ -3,7 +3,10 @@
  */
 public enum MessageType {
     GET("get"), SET("set"), DUPL("dupl"), HELLO("hello"), HELLO_RESPONSE("helloResponse"),
-    UNKNOWN("UNKNOWN"), SET_RESPONSE("setResponse"), GET_RESPONSE("getResponse");
+    UNKNOWN("UNKNOWN"), SET_RESPONSE("setResponse"), GET_RESPONSE("getResponse"), REQUEST_VOTE("requestVote"),
+    APPEND_ENTRIES("appendEntries"), REQUEST_VOTE_RESPONSE("requestVoteResponse"),
+    APPEND_ENTRIES_RESPONSE("appendEntriesResponse");
+
 
 
     private final String representation;
@@ -12,12 +15,18 @@ public enum MessageType {
         this.representation = repr;
     }
 
-    public static MessageType safeValueOf(String s) {
+    // given a string type from JSON, return the MessageType enum corresponding to it.
+    public static MessageType parse(String s) {
         MessageType m;
         try {
-            m = valueOf(s.trim().toUpperCase());
+            m = valueOf(s.trim().toUpperCase()); //optimistic matching
         } catch (IllegalArgumentException e) {
-            m = UNKNOWN;
+            for (MessageType mt : MessageType.values()) { //pessimistic matching with custom values.
+                if (mt.representation.equals(s)) {
+                    return mt;
+                }
+            }
+            return UNKNOWN;
         }
         return m;
 
