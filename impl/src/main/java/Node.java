@@ -70,9 +70,9 @@ public class Node {
         System.out.println(message);
     }
 
-    public void sendToBroker(JSONObject message) {
-        this.reqSock.send(message.toString().getBytes(Charset.defaultCharset()));
-        logDebug(String.format("Sent Message %s", message.toString()));
+    public void sendToBroker(byte[] message) {
+        this.reqSock.send(message);
+        logDebug(String.format("Sent Message %s", new String(message, Charset.defaultCharset())));
 
     }
 
@@ -84,20 +84,21 @@ public class Node {
         switch (type) {
             case GET:
                 String k = msg.getString("key");
+
                 JSONObject m = new JSONObject();
                 if (store.containsKey(k)) {
                     String val = store.get(k);
                     m.put("type", "getResponse");
                     m.put("id", msg.get("id"));
-                    m.put("k", k);
-                    m.put("v", val);
+                    m.put("key", k);
+                    m.put("value", val);
                 } else {
                     m.put("type", "getResponse");
                     m.put("id", msg.get("id"));
                     m.put("error", String.format("No such key: %s", k));
 
                 }
-                sendToBroker(m);
+                sendToBroker(m.toString().getBytes(Charset.defaultCharset()));
                 break;
             case DUPL:
                 String key = msg.getString("key");
@@ -114,21 +115,21 @@ public class Node {
                             .put("destination", peer)
                             .put("key", key)
                             .put("value", value);
-                    //sendToBroker(dupl);
+                    sendToBroker(dupl.toString().getBytes());
                 }
                 JSONObject setResponse = new JSONObject();
                 setResponse.put("type", "setResponse")
                         .put("id", msg.get("id"))
                         .put("key", key)
                         .put("value", value);
-                sendToBroker(setResponse);
+                sendToBroker(setResponse.toString().getBytes(Charset.defaultCharset()));
 
                 break;
             case HELLO:
                 if (!this.connected) {
                     this.connected = true;
                     JSONObject hr = new JSONObject(String.format("{'type': 'helloResponse', 'source': %s}", this.nodeName));
-                    sendToBroker(hr);
+                    sendToBroker(hr.toString().getBytes(Charset.defaultCharset()));
                     log("Node Running");
                 }
             case UNKNOWN:

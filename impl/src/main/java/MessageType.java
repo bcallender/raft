@@ -2,7 +2,7 @@
  * Created by brandon on 5/22/16.
  */
 public enum MessageType {
-    GET, SET, DUPL, HELLO, UNKNOWN;
+    GET, SET, DUPL, HELLO, UNKNOWN, SET_RESPONSE, GET_RESPONSE;
 
     public static MessageType safeValueOf(String s) {
         MessageType m;
