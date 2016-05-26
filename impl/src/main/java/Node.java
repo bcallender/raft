@@ -61,7 +61,7 @@ public class Node implements Serializable {
                         heartBeatTimeoutValue,
                         heartBeatTimeoutValue,
                         TimeUnit.MILLISECONDS);
-        brokerManager.logDebug(String.format("Election timeout value for %s is $d", nodeName, heartBeatTimeoutValue));
+        brokerManager.logDebug(String.format("Election timeout value for %s is %d", nodeName, heartBeatTimeoutValue));
         heartBeatSend.cancel(true);
     }
 
