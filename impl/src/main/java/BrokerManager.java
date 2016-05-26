@@ -5,6 +5,7 @@ import org.zeromq.ZMsg;
 
 import java.nio.charset.Charset;
 import java.util.List;
+import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * Created by brandon on 5/13/16.
@@ -21,6 +22,7 @@ public class BrokerManager {
     private List<String> peers;
     private boolean debug;
     private Gson gson;
+    private ReentrantLock reqSockLock;
 
     public BrokerManager(List<String> peers, String nodeName, String pubEndpoint, String routerEndpoint) {
         this.peers = peers;
@@ -41,6 +43,7 @@ public class BrokerManager {
         reqSock.connect(routerEndpoint);
         reqSock.setIdentity(nodeName.getBytes());
         this.poller.register(reqSock);
+        this.reqSockLock = new ReentrantLock();
 
 
         this.debug = true;
@@ -63,9 +66,11 @@ public class BrokerManager {
     }
 
     public void sendToBroker(byte[] message) {
+        reqSockLock.lock();
         byte[] nullFrame = new byte[0]; //need to send a null frame with DEALER to emulate REQ envelope
         this.reqSock.send(nullFrame, ZMQ.SNDMORE);
         this.reqSock.send(message);
+        reqSockLock.unlock();
 
         logDebug(String.format("Sent Message %s", new String(message, Charset.defaultCharset())));
 

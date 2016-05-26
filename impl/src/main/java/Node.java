@@ -17,6 +17,8 @@ public class Node implements Serializable {
     private static final int HEARTBEAT_INTERVAL = 50;
 
     private final ScheduledExecutorService executorService = Executors.newScheduledThreadPool(1);
+    private final ScheduledFuture<?> heartBeatSend;
+    private final ScheduledFuture<?> electionTimeout;
 
     //volatile on all
     int commitIndex;
@@ -51,19 +53,20 @@ public class Node implements Serializable {
 
         int heartBeatTimeoutValue = ThreadLocalRandom.current().nextInt(150, 301);
 
-        final ScheduledFuture<?> heartBeatSend =
+        this.heartBeatSend =
                 this.executorService.scheduleAtFixedRate(new HeartbeatSender(brokerManager),
                         HEARTBEAT_INTERVAL,
                         HEARTBEAT_INTERVAL,
                         TimeUnit.MILLISECONDS);
 
-        final ScheduledFuture electionTimeout =
+        this.electionTimeout =
                 this.executorService.scheduleAtFixedRate(new ElectionTimeoutHandler(),
                         heartBeatTimeoutValue,
                         heartBeatTimeoutValue,
                         TimeUnit.MILLISECONDS);
         brokerManager.logDebug(String.format("Election timeout value for %s is %d", nodeName, heartBeatTimeoutValue));
         heartBeatSend.cancel(true);
+
     }
 
     public void handleMessage(ZMsg message) {
