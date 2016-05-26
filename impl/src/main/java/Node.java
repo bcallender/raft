@@ -1,3 +1,4 @@
+import com.google.gson.Gson;
 import org.json.JSONObject;
 import org.zeromq.ZMsg;
 
@@ -19,7 +20,6 @@ public class Node implements Serializable {
     private final ScheduledExecutorService executorService = Executors.newScheduledThreadPool(1);
     private final ScheduledFuture<?> heartBeatSend;
     private final ScheduledFuture<?> electionTimeout;
-
     //volatile on all
     int commitIndex;
     int lastApplied;
@@ -28,6 +28,8 @@ public class Node implements Serializable {
     int nextIndex;
     int matchIndex;
     List<Entry> log;
+    private Gson gson;
+    private HashMap<Integer, ClientCommand> commandsInFlight;
     private BrokerManager brokerManager;
     private Map<String, String> store;
     private String nodeName;
@@ -64,8 +66,10 @@ public class Node implements Serializable {
                         heartBeatTimeoutValue,
                         heartBeatTimeoutValue,
                         TimeUnit.MILLISECONDS);
-        Logger.log(Logger.LogLevel.DEBUG, String.format("Election timeout value for %s is %d", nodeName, heartBeatTimeoutValue));
+        Logger.debug(String.format("Election timeout value for %s is %d", nodeName, heartBeatTimeoutValue));
         heartBeatSend.cancel(true);
+
+        this.gson = new Gson();
 
 
     }
@@ -83,22 +87,7 @@ public class Node implements Serializable {
             case REQUEST_VOTE:
             case REQUEST_VOTE_RESPONSE:
             case GET:
-                String k = msg.getString("key");
-
-                JSONObject m = new JSONObject();
-                if (store.containsKey(k)) {
-                    String val = store.get(k);
-                    m.put("type", "getResponse");
-                    m.put("id", msg.get("id"));
-                    m.put("key", k);
-                    m.put("value", val);
-                } else {
-                    m.put("type", "getResponse");
-                    m.put("id", msg.get("id"));
-                    m.put("error", String.format("No such key: %s", k));
-
-                }
-                brokerManager.sendToBroker(m.toString().getBytes(Charset.defaultCharset()));
+                handleGetMessage(msg);
                 break;
             case DUPL:
                 String key = msg.getString("key");
@@ -130,9 +119,52 @@ public class Node implements Serializable {
                     connected = true;
                     JSONObject hr = new JSONObject(String.format("{'type': 'helloResponse', 'source': %s}", nodeName));
                     brokerManager.sendToBroker(hr.toString().getBytes(Charset.defaultCharset()));
-                    Logger.log(Logger.LogLevel.INFO, "BrokerManager Running");
+                    Logger.info("BrokerManager Running");
                 }
             case UNKNOWN:
+        }
+    }
+
+    private void handleGetMessage(JSONObject msg) {
+
+        String key = msg.getString("key");
+        int id = msg.getInt("id");
+        ClientCommand command = new ClientCommand(MessageType.GET, key, null);
+        commandsInFlight.put(id, command);
+        //am I the leader?
+        if (this.role == Role.LEADER) {
+            //return the latest value from the store TODO:check if still leader?
+
+            JSONObject getResp = new JSONObject();
+            getResp.put("type", MessageType.GET_RESPONSE);
+            getResp.put("id", id);
+            if (store.containsKey(key)) {
+                getResp.put("key", key);
+                getResp.put("value", store.get(key));
+            } else {
+                getResp.put("error", String.format("No such key: %s", key));
+            }
+
+            brokerManager.sendToBroker(getResp.toString().getBytes(Charset.defaultCharset()));
+            commandsInFlight.remove(id);
+
+
+        } else { //i'm not the leader, I need to get the value from the leader
+            //do we know who the leader is?
+            if (true) { //TODO: FIX
+                JSONObject fwd = new JSONObject();
+                fwd.put("type", MessageType.REQUEST_FORWARD);
+                fwd.put("id", id);
+                fwd.put("key", key);
+                fwd.put("source", this.nodeName);
+            } else { //current leader unknown
+                JSONObject getResp = new JSONObject();
+                getResp.put("type", MessageType.GET_RESPONSE);
+                getResp.put("id", id);
+                getResp.put("error", "Cannot identify leader");
+                brokerManager.sendToBroker(getResp.toString().getBytes(Charset.defaultCharset()));
+                commandsInFlight.remove(id);
+            }
         }
     }
 

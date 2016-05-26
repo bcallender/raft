@@ -5,10 +5,30 @@ public class Logger {
 
     public static LogLevel masterLogLevel = LogLevel.INFO; //default log level, don't print debug
 
-    public static void log(LogLevel ll, String message) {
+    private static void log(LogLevel ll, String message) {
         if (ll.level >= masterLogLevel.level) { //if the loglevel is higher, dont log it out to stdout
             System.out.println(message);
         }
+    }
+
+    public static void error(String message) {
+        log(LogLevel.ERROR, message);
+    }
+
+    public static void warning(String message) {
+        log(LogLevel.WARNING, message);
+    }
+
+    public static void info(String message) {
+        log(LogLevel.INFO, message);
+    }
+
+    public static void debug(String message) {
+        log(LogLevel.DEBUG, message);
+    }
+
+    public static void trace(String message) {
+        log(LogLevel.TRACE, message);
     }
 
     public static void setMasterLogLevel(LogLevel ll) {
@@ -16,7 +36,7 @@ public class Logger {
     }
 
     public enum LogLevel {
-        DEBUG(0), INFO(1), WARNING(2), ERROR(3);
+        TRACE(-1), DEBUG(0), INFO(1), WARNING(2), ERROR(3);
 
         int level;
 
