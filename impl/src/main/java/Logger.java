@@ -7,7 +7,7 @@ public class Logger {
 
     private static void log(LogLevel ll, String message) {
         if (ll.level >= masterLogLevel.level) { //if the loglevel is higher, dont log it out to stdout
-            System.out.println(message);
+            System.out.println(String.format("%s: %s", ll, message));
         }
     }
 

@@ -5,10 +5,7 @@ import org.zeromq.ZMsg;
 
 import java.io.Serializable;
 import java.nio.charset.Charset;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.concurrent.*;
 
 /**
@@ -31,7 +28,7 @@ public class Node implements Serializable {
     int matchIndex;
     List<Entry> log;
     private Gson gson;
-    private HashMap<Integer, ClientCommand> commandsInFlight;
+    private Map<Integer, ClientCommand> commandsInFlight;
     private BrokerManager brokerManager;
     private Map<String, String> store;
     private String nodeName;
@@ -51,8 +48,15 @@ public class Node implements Serializable {
         this.commitIndex = 0;
         this.lastApplied = 0;
         this.role = Role.FOLLOWER;
+        //TODO debugging
+        if (this.nodeName.equals("node-2")) {
+            this.role = Role.LEADER;
+        } else {
+            this.leader = "node-2";
+        }
         this.nextIndex = 0;
         this.matchIndex = 0;
+        commandsInFlight = new TreeMap<>();
 
 
         int heartBeatTimeoutValue = ThreadLocalRandom.current().nextInt(150, 301);
@@ -110,19 +114,27 @@ public class Node implements Serializable {
     }
 
     private void handleSetMessage(JSONObject msg) {
-        String key = msg.getString("key");
-        String value = msg.getString("value");
-        store.put(key, value);
-        JSONObject setResponse = new JSONObject();
-        setResponse.put("type", MessageType.SET_RESPONSE)
-                .put("id", msg.get("id"))
-                .put("key", key)
-                .put("value", value);
-        brokerManager.sendToBroker(setResponse.toString().getBytes(Charset.defaultCharset()));
+
+        if (this.role == Role.LEADER) { //TODO: log replication
+            String key = msg.getString("key");
+            String value = msg.getString("value");
+            store.put(key, value);
+            JSONObject setResponse = new JSONObject();
+            setResponse.put("type", MessageType.SET_RESPONSE)
+                    .put("id", msg.get("id"))
+                    .put("key", key)
+                    .put("value", value);
+            brokerManager.sendToBroker(setResponse.toString().getBytes(Charset.defaultCharset()));
+        } else {
+            ErrorMessage em = new ErrorMessage(MessageType.SET_RESPONSE, null, msg.getInt("id"), this.nodeName,
+                    String.format("SET commands may only be sent to leader node. I think the current leader is %s", this.leader));
+            brokerManager.sendToBroker(em.serialize(gson));
+        }
+
     }
 
     private void handleForwardRequestResponse(JSONObject msg) {
-        String key = msg.getString("key");
+
         int id = msg.getInt("id");
         //is this reply stale? (my inFlight table has been flushed since i sent this)
         if (commandsInFlight.containsKey(id)) {
@@ -133,6 +145,7 @@ public class Node implements Serializable {
                 ErrorMessage reply = new ErrorMessage(MessageType.GET_RESPONSE, null, id, this.nodeName, response.getError());
                 brokerManager.sendToBroker(reply.serialize(gson));
             } else { //message has the data we need!
+                String key = msg.getString("key");
                 Message m = new Message(MessageType.GET_RESPONSE, null, id, this.nodeName);
                 JsonObject toSend = m.serializeToObject(gson);
                 toSend.addProperty("key", key);

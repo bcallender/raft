@@ -75,7 +75,7 @@ public class BrokerManager {
             //subSock registered at index '0'
             if (poller.pollin(0)) {
                 ZMsg msg = ZMsg.recvMsg(subSock, ZMQ.DONTWAIT);
-                //Node.handleMessage(this, msg);
+                node.handleMessage(msg);
             }
 
             //reqSock registered at index '1'
