@@ -17,7 +17,7 @@ public class Node implements Serializable {
     private static final int HEARTBEAT_INTERVAL = 50;
 
     private final ScheduledExecutorService executorService = Executors.newScheduledThreadPool(1);
-    List<Entry> log;
+
     //volatile on all
     int commitIndex;
     int lastApplied;
@@ -25,6 +25,7 @@ public class Node implements Serializable {
     //volatile on master
     int nextIndex;
     int matchIndex;
+    List<Entry> log;
     private BrokerManager brokerManager;
     private Map<String, String> store;
     private String nodeName;
@@ -71,6 +72,12 @@ public class Node implements Serializable {
         MessageType type = MessageType.parse(msg.getString("type"));
 
         switch (type) {
+            case APPEND_ENTRIES:
+            case APPEND_ENTRIES_RESPONSE:
+            case REQUEST_FORWARD:
+            case REQUEST_FORWARD_RESPONSE:
+            case REQUEST_VOTE:
+            case REQUEST_VOTE_RESPONSE:
             case GET:
                 String k = msg.getString("key");
 

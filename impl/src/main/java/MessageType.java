@@ -13,7 +13,12 @@ public enum MessageType {
     @SerializedName("requestVoteResponse")
     REQUEST_VOTE_RESPONSE("requestVoteResponse"),
     @SerializedName("appendEntriesResponse")
-    APPEND_ENTRIES_RESPONSE("appendEntriesResponse");
+    APPEND_ENTRIES_RESPONSE("appendEntriesResponse"),
+    @SerializedName("requestForward")
+    REQUEST_FORWARD("requestForward"),
+    @SerializedName("requestForwardResponse")
+    REQUEST_FORWARD_RESPONSE("requestForwardResponse");
+
 
 
 

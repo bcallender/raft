@@ -15,7 +15,8 @@ public class AppendEntriesMessage extends Message implements Serializable {
     List<Entry> entries;
     int leaderCommit;
 
-    public AppendEntriesMessage(MessageType type, String destination, int id, String source, int term, String leaderId, int prevLogIndex, int prevLogTerm, List<Entry> entries, int leaderCommit) {
+    public AppendEntriesMessage(MessageType type, String destination, int id, String source, int term, String leaderId,
+                                int prevLogIndex, int prevLogTerm, List<Entry> entries, int leaderCommit) {
         super(type, destination, id, source);
         this.term = term;
         this.leaderId = leaderId;
