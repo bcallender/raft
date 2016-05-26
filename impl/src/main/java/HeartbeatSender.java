@@ -5,9 +5,9 @@ import com.google.gson.Gson;
  */
 public class HeartbeatSender implements Runnable {
 
-    private Node parent;
+    private BrokerManager parent;
 
-    public HeartbeatSender(Node parent) {
+    public HeartbeatSender(BrokerManager parent) {
         this.parent = parent;
     }
 

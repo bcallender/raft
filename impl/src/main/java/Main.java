@@ -15,7 +15,7 @@ public class Main {
     private String pubEndpoint = "tcp://127.0.0.1:23310";
     @Parameter(names = "--router-endpoint", description = "Router Endpoint")
     private String routerEndpoint = "tcp://127.0.0.1:23311";
-    @Parameter(names = "--node-name", description = "Node Name")
+    @Parameter(names = "--node-name", description = "BrokerManager Name")
     private String nodeName;
     @Parameter(names = "--peer", description = "Peers")
     private List<String> peers = new ArrayList<>();
@@ -23,7 +23,7 @@ public class Main {
     public static void main(String[] args) {
         Main main = new Main();
         new JCommander(main, args);
-        Node n = new Node(main.peers, main.nodeName,
+        BrokerManager n = new BrokerManager(main.peers, main.nodeName,
                 main.pubEndpoint, main.routerEndpoint);
         n.start();
 
