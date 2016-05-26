@@ -1,0 +1,14 @@
+Implemented RPC as JSON messages deserialized to classes (RequestVoteMessage/AppendEntriesMessage) -- Refactored Node to include BrokerManager, pushed out timers to ElectionTimeoutHandler and HeartbeatSender
+
+Non Leader protocol --
+
+CLIENT --> FOLLOWER ---> LEADER ---> FOLLOWER --> CLIENT
+
+Things that we still have to do:
+
+Leader elections
+Passing around Append_Entries/Request Vote messages
+State transitions across LEADER/FOLLOWER/CANDIDATE
+Forwarding messages from followers to leader
+
+Issues -- Concurrent timeouts and sending on the socket. 
