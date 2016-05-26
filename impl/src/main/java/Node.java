@@ -60,7 +60,7 @@ public class Node {
         this.gson = new Gson();
 
         final ScheduledFuture<?> heartBeatTimeout =
-                this.executorService.scheduleAtFixedRate(new HeartbeatSender(), 175, 175, TimeUnit.MILLISECONDS);
+                this.executorService.scheduleAtFixedRate(new HeartbeatSender(this), 175, 175, TimeUnit.MILLISECONDS);
 
 
 

@@ -1,10 +1,18 @@
+import com.google.gson.annotations.SerializedName;
+
 /**
  * Created by brandon on 5/22/16.
  */
 public enum MessageType {
     GET("get"), SET("set"), DUPL("dupl"), HELLO("hello"), HELLO_RESPONSE("helloResponse"),
-    UNKNOWN("UNKNOWN"), SET_RESPONSE("setResponse"), GET_RESPONSE("getResponse"), REQUEST_VOTE("requestVote"),
-    APPEND_ENTRIES("appendEntries"), REQUEST_VOTE_RESPONSE("requestVoteResponse"),
+    UNKNOWN("UNKNOWN"), SET_RESPONSE("setResponse"), GET_RESPONSE("getResponse"),
+    @SerializedName("requestVote")
+    REQUEST_VOTE("requestVote"),
+    @SerializedName("appendEntries")
+    APPEND_ENTRIES("appendEntries"),
+    @SerializedName("requestVoteResponse")
+    REQUEST_VOTE_RESPONSE("requestVoteResponse"),
+    @SerializedName("appendEntriesResponse")
     APPEND_ENTRIES_RESPONSE("appendEntriesResponse");
 
 
