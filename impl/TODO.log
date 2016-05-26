@@ -20,3 +20,11 @@ Forward Message Structure:
 | "id" : request_id       |
 | "key" : key                        |
 | "source" : source_node             |
+
+
+forward response
+type:forward_response
+id: id
+key: key
+value: value
+source: source

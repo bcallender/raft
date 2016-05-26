@@ -1,4 +1,5 @@
 import com.google.gson.Gson;
+import com.google.gson.JsonObject;
 import org.json.JSONObject;
 import org.zeromq.ZMsg;
 
@@ -24,6 +25,7 @@ public class Node implements Serializable {
     int commitIndex;
     int lastApplied;
     Role role;
+    String leader;
     //volatile on master
     int nextIndex;
     int matchIndex;
@@ -83,36 +85,18 @@ public class Node implements Serializable {
             case APPEND_ENTRIES:
             case APPEND_ENTRIES_RESPONSE:
             case REQUEST_FORWARD:
+                handleForwardRequest(msg);
+                break;
             case REQUEST_FORWARD_RESPONSE:
+                handleForwardRequestResponse(msg);
+                break;
             case REQUEST_VOTE:
             case REQUEST_VOTE_RESPONSE:
             case GET:
                 handleGetMessage(msg);
                 break;
-            case DUPL:
-                String key = msg.getString("key");
-                String value = msg.getString("value");
-                store.put(key, value);
-                break;
             case SET:
-                key = msg.getString("key");
-                value = msg.getString("value");
-                store.put(key, value);
-                for (String peer : brokerManager.getPeers()) {
-                    JSONObject dupl = new JSONObject();
-                    dupl.put("type", MessageType.DUPL)
-                            .put("destination", peer)
-                            .put("key", key)
-                            .put("value", value);
-                    brokerManager.sendToBroker(dupl.toString().getBytes());
-                }
-                JSONObject setResponse = new JSONObject();
-                setResponse.put("type", MessageType.SET_RESPONSE)
-                        .put("id", msg.get("id"))
-                        .put("key", key)
-                        .put("value", value);
-                brokerManager.sendToBroker(setResponse.toString().getBytes(Charset.defaultCharset()));
-
+                handleSetMessage(msg);
                 break;
             case HELLO:
                 if (!connected) {
@@ -125,6 +109,66 @@ public class Node implements Serializable {
         }
     }
 
+    private void handleSetMessage(JSONObject msg) {
+        String key = msg.getString("key");
+        String value = msg.getString("value");
+        store.put(key, value);
+        JSONObject setResponse = new JSONObject();
+        setResponse.put("type", MessageType.SET_RESPONSE)
+                .put("id", msg.get("id"))
+                .put("key", key)
+                .put("value", value);
+        brokerManager.sendToBroker(setResponse.toString().getBytes(Charset.defaultCharset()));
+    }
+
+    private void handleForwardRequestResponse(JSONObject msg) {
+        String key = msg.getString("key");
+        int id = msg.getInt("id");
+        //is this reply stale? (my inFlight table has been flushed since i sent this)
+        if (commandsInFlight.containsKey(id)) {
+            //is this an error?
+            commandsInFlight.remove(id);
+            if (msg.has("error")) {
+                ErrorMessage response = ErrorMessage.deserialize(msg.toString(), gson);
+                ErrorMessage reply = new ErrorMessage(MessageType.GET_RESPONSE, null, id, this.nodeName, response.getError());
+                brokerManager.sendToBroker(reply.serialize(gson));
+            } else { //message has the data we need!
+                Message m = new Message(MessageType.GET_RESPONSE, null, id, this.nodeName);
+                JsonObject toSend = m.serializeToObject(gson);
+                toSend.addProperty("key", key);
+                toSend.addProperty("value", msg.getString("value"));
+                brokerManager.sendToBroker(toSend.toString().getBytes(Charset.defaultCharset()));
+            }
+        }
+
+        //drop message if stale
+    }
+
+    private void handleForwardRequest(JSONObject msg) {
+        String key = msg.getString("key");
+        int id = msg.getInt("id");
+        String source = msg.getString("source");
+        //am i the leader?
+        if (this.role == Role.LEADER) {
+            if (store.containsKey(key)) {
+                Message m = new Message(MessageType.REQUEST_FORWARD_RESPONSE, source, id, this.nodeName);
+                JsonObject reply = m.serializeToObject(gson);
+                reply.addProperty("key", key);
+                reply.addProperty("value", store.get(key));
+                brokerManager.sendToBroker(reply.toString().getBytes(Charset.defaultCharset()));
+            } else {
+                ErrorMessage em = new ErrorMessage(MessageType.REQUEST_FORWARD_RESPONSE, source, id, this.nodeName,
+                        String.format("No such key: %s", key));
+                brokerManager.sendToBroker(em.serialize(gson));
+            }
+        } else {
+            ErrorMessage em = new ErrorMessage(MessageType.REQUEST_FORWARD_RESPONSE, source, id, this.nodeName,
+                    "Cannot identify leader -- no referenced at follower perceived leader");
+            brokerManager.sendToBroker(em.serialize(gson));
+        }
+
+    }
+
     private void handleGetMessage(JSONObject msg) {
 
         String key = msg.getString("key");
@@ -135,34 +179,35 @@ public class Node implements Serializable {
         if (this.role == Role.LEADER) {
             //return the latest value from the store TODO:check if still leader?
 
-            JSONObject getResp = new JSONObject();
-            getResp.put("type", MessageType.GET_RESPONSE);
-            getResp.put("id", id);
+
             if (store.containsKey(key)) {
-                getResp.put("key", key);
-                getResp.put("value", store.get(key));
+
+                Message m = new Message(MessageType.GET_RESPONSE, null, id, this.nodeName);
+                JsonObject getResp = m.serializeToObject(gson);
+                getResp.addProperty("key", key);
+                getResp.addProperty("value", store.get(key));
+                brokerManager.sendToBroker(getResp.toString().getBytes(Charset.defaultCharset()));
+
             } else {
-                getResp.put("error", String.format("No such key: %s", key));
+                ErrorMessage em = new ErrorMessage(MessageType.GET_RESPONSE, null, id, this.nodeName,
+                        String.format("No such key: %s", key));
+                brokerManager.sendToBroker(em.serialize(gson));
             }
 
-            brokerManager.sendToBroker(getResp.toString().getBytes(Charset.defaultCharset()));
             commandsInFlight.remove(id);
 
 
         } else { //i'm not the leader, I need to get the value from the leader
             //do we know who the leader is?
-            if (true) { //TODO: FIX
-                JSONObject fwd = new JSONObject();
-                fwd.put("type", MessageType.REQUEST_FORWARD);
-                fwd.put("id", id);
-                fwd.put("key", key);
-                fwd.put("source", this.nodeName);
+            if (leader != null) {
+                Message m = new Message(MessageType.REQUEST_FORWARD, leader, id, this.nodeName);
+                JsonObject fwd = m.serializeToObject(gson);
+                fwd.addProperty("key", key);
+                brokerManager.sendToBroker(fwd.toString().getBytes(Charset.defaultCharset()));
             } else { //current leader unknown
-                JSONObject getResp = new JSONObject();
-                getResp.put("type", MessageType.GET_RESPONSE);
-                getResp.put("id", id);
-                getResp.put("error", "Cannot identify leader");
-                brokerManager.sendToBroker(getResp.toString().getBytes(Charset.defaultCharset()));
+                ErrorMessage em = new ErrorMessage(MessageType.GET_RESPONSE, null, id, this.nodeName,
+                        String.format("Cannot identify Leader -- no reference at follower: %s", key));
+                brokerManager.sendToBroker(em.serialize(gson));
                 commandsInFlight.remove(id);
             }
         }
