@@ -47,6 +47,7 @@ public class BrokerManager {
 
 
         this.debug = true;
+        Logger.setMasterLogLevel(Logger.LogLevel.DEBUG);
         this.gson = new Gson();
 
         this.node = new Node(nodeName, this);
@@ -56,15 +57,6 @@ public class BrokerManager {
 
     }
 
-    public void logDebug(String message) {
-        if (this.debug)
-            System.out.println(message);
-    }
-
-    public void log(String message) {
-        System.out.println(message);
-    }
-
     public void sendToBroker(byte[] message) {
         reqSockLock.lock();
         byte[] nullFrame = new byte[0]; //need to send a null frame with DEALER to emulate REQ envelope
@@ -72,7 +64,8 @@ public class BrokerManager {
         this.reqSock.send(message);
         reqSockLock.unlock();
 
-        logDebug(String.format("Sent Message %s", new String(message, Charset.defaultCharset())));
+        Logger.log(Logger.LogLevel.DEBUG,
+                String.format("Sent Message %s", new String(message, Charset.defaultCharset())));
 
 
     }

@@ -11,4 +11,4 @@ Passing around Append_Entries/Request Vote messages
 State transitions across LEADER/FOLLOWER/CANDIDATE
 Forwarding messages from followers to leader
 
-Issues -- Concurrent timeouts and sending on the socket. 
+Issues -- Concurrent timeouts and sending on the socket.

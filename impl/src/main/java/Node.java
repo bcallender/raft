@@ -64,8 +64,9 @@ public class Node implements Serializable {
                         heartBeatTimeoutValue,
                         heartBeatTimeoutValue,
                         TimeUnit.MILLISECONDS);
-        brokerManager.logDebug(String.format("Election timeout value for %s is %d", nodeName, heartBeatTimeoutValue));
+        Logger.log(Logger.LogLevel.DEBUG, String.format("Election timeout value for %s is %d", nodeName, heartBeatTimeoutValue));
         heartBeatSend.cancel(true);
+
 
     }
 
@@ -129,7 +130,7 @@ public class Node implements Serializable {
                     connected = true;
                     JSONObject hr = new JSONObject(String.format("{'type': 'helloResponse', 'source': %s}", nodeName));
                     brokerManager.sendToBroker(hr.toString().getBytes(Charset.defaultCharset()));
-                    brokerManager.log("BrokerManager Running");
+                    Logger.log(Logger.LogLevel.INFO, "BrokerManager Running");
                 }
             case UNKNOWN:
         }
