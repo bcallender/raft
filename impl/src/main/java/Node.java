@@ -1,5 +1,6 @@
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
+import org.json.JSONException;
 import org.json.JSONObject;
 import org.zeromq.ZMsg;
 
@@ -13,11 +14,9 @@ import java.util.concurrent.*;
  */
 public class Node implements Serializable {
 
-    private static final int HEARTBEAT_INTERVAL = 50;
+    private static final int HEARTBEAT_INTERVAL = 2500;
 
     private final ScheduledExecutorService executorService = Executors.newScheduledThreadPool(1);
-    private final ScheduledFuture<?> heartBeatSend;
-    private final ScheduledFuture<?> electionTimeout;
     //volatile on all
     int commitIndex;
     int lastApplied;
@@ -27,15 +26,23 @@ public class Node implements Serializable {
     int nextIndex;
     int matchIndex;
     List<Entry> log;
+    private ScheduledFuture<?> heartBeatSend;
+    private ScheduledFuture<?> electionTimeout;
+    private int heartBeatTimeoutValue;
     private Gson gson;
     private Map<Integer, ClientCommand> commandsInFlight;
     private BrokerManager brokerManager;
     private Map<String, String> store;
     private String nodeName;
     private boolean connected;
+
+
     //persistent
     private int currentTerm;
     private String votedFor;
+
+    //requestVote State
+    private HashMap<String, Boolean> voteResponses;
 
     public Node(String nodeName, BrokerManager brokerManager) {
         this.nodeName = nodeName;
@@ -48,36 +55,65 @@ public class Node implements Serializable {
         this.commitIndex = 0;
         this.lastApplied = 0;
         this.role = Role.FOLLOWER;
-        //TODO debugging
-        if (this.nodeName.equals("node-2")) {
-            this.role = Role.LEADER;
-        } else {
-            this.leader = "node-2";
-        }
         this.nextIndex = 0;
         this.matchIndex = 0;
         commandsInFlight = new TreeMap<>();
+        voteResponses = new HashMap<>();
 
-
-        int heartBeatTimeoutValue = ThreadLocalRandom.current().nextInt(150, 301);
+        this.heartBeatTimeoutValue = ThreadLocalRandom.current().nextInt(5000, 10000);
 
         this.heartBeatSend =
-                this.executorService.scheduleAtFixedRate(new HeartbeatSender(brokerManager),
+                this.executorService.scheduleAtFixedRate(new HeartbeatSender(this),
                         HEARTBEAT_INTERVAL,
                         HEARTBEAT_INTERVAL,
                         TimeUnit.MILLISECONDS);
 
+
+        Logger.debug(String.format("Election timeout value for %s is %d", nodeName, heartBeatTimeoutValue));
+        heartBeatSend.cancel(true);
+
+
+        this.gson = new Gson();
+
+
+    }
+
+    public int getCurrentTerm() {
+        return currentTerm;
+    }
+
+    private void startElectionTimeout() {
+        this.electionTimeout =
+                this.executorService.scheduleAtFixedRate(new ElectionTimeoutHandler(this),
+                        5000,
+                        heartBeatTimeoutValue,
+                        TimeUnit.MILLISECONDS);
+        Logger.debug(String.format("Election timeout value for %s is %d", nodeName, heartBeatTimeoutValue));
+
+
+    }
+
+    private void restartElectionTimeout() {
+        if (this.electionTimeout != null) {
+            this.electionTimeout.cancel(true);
+        }
         this.electionTimeout =
                 this.executorService.scheduleAtFixedRate(new ElectionTimeoutHandler(this),
                         heartBeatTimeoutValue,
                         heartBeatTimeoutValue,
                         TimeUnit.MILLISECONDS);
         Logger.debug(String.format("Election timeout value for %s is %d", nodeName, heartBeatTimeoutValue));
-        heartBeatSend.cancel(true);
 
-        this.gson = new Gson();
+    }
 
 
+    private void restartHeartBeatTimeout() {
+        this.heartBeatSend.cancel(true);
+        this.heartBeatSend =
+                this.executorService.scheduleAtFixedRate(new HeartbeatSender(this),
+                        0,
+                        HEARTBEAT_INTERVAL,
+                        TimeUnit.MILLISECONDS);
     }
 
     public void handleMessage(ZMsg message) {
@@ -90,6 +126,7 @@ public class Node implements Serializable {
                 handleAppendEntries(msg);
                 break;
             case APPEND_ENTRIES_RESPONSE:
+                break;
             case REQUEST_FORWARD:
                 handleForwardRequest(msg);
                 break;
@@ -114,6 +151,7 @@ public class Node implements Serializable {
                     JSONObject hr = new JSONObject(String.format("{'type': 'helloResponse', 'source': %s}", nodeName));
                     brokerManager.sendToBroker(hr.toString().getBytes(Charset.defaultCharset()));
                     Logger.info("BrokerManager Running");
+                    startElectionTimeout();
                 }
             case UNKNOWN:
         }
@@ -130,15 +168,22 @@ public class Node implements Serializable {
     private void handleSetMessage(JSONObject msg) {
 
         if (this.role == Role.LEADER) { //TODO: log replication
-            String key = msg.getString("key");
-            String value = msg.getString("value");
-            store.put(key, value);
-            JSONObject setResponse = new JSONObject();
-            setResponse.put("type", MessageType.SET_RESPONSE)
-                    .put("id", msg.get("id"))
-                    .put("key", key)
-                    .put("value", value);
-            brokerManager.sendToBroker(setResponse.toString().getBytes(Charset.defaultCharset()));
+            try {
+                String key = msg.getString("key");
+                String value = msg.getString("value");
+                store.put(key, value);
+                JSONObject setResponse = new JSONObject();
+                setResponse.put("type", MessageType.SET_RESPONSE)
+                        .put("id", msg.get("id"))
+                        .put("key", key)
+                        .put("value", value);
+                brokerManager.sendToBroker(setResponse.toString().getBytes(Charset.defaultCharset()));
+            } catch (JSONException e) {
+                ErrorMessage em = new ErrorMessage(MessageType.SET_RESPONSE, null, msg.getInt("id"), this.nodeName,
+                        String.format("Invalid JSON sent to me: %s", msg.toString()));
+                brokerManager.sendToBroker(em.serialize(gson));
+            }
+
         } else {
             ErrorMessage em = new ErrorMessage(MessageType.SET_RESPONSE, null, msg.getInt("id"), this.nodeName,
                     String.format("SET commands may only be sent to leader node. I think the current leader is %s", this.leader));
@@ -246,7 +291,7 @@ public class Node implements Serializable {
         String candidateId = m.getCandidateId();
         boolean success = false;
         //if the message is a later term than ours or we have yet to vote
-        if (voteTerm > currentTerm || (voteTerm == currentTerm && (votedFor == null || votedFor.equals(candidateId)))) {
+        if (voteTerm > currentTerm || (voteTerm == currentTerm && (votedFor == null/* || votedFor.equals(candidateId)*/))) {
             /* voteTerm and currentTerm currently checked twice, can possibly be corrected */
             updateTerm(voteTerm);
             int logTerm = m.getLastLogTerm();
@@ -270,25 +315,61 @@ public class Node implements Serializable {
 
     private void handleRequestVoteResponse(JSONObject msg) {
 
+        RPCMessageResponse response = RPCMessageResponse.deserialize(msg.toString().getBytes(Charset.defaultCharset()),
+                gson);
+        if (this.role == Role.CANDIDATE) {
+            this.voteResponses.put(response.source, response.success);
+            int numYeas = 0;
+            int numNays = 0;
+            if (voteResponses.size() > (brokerManager.getPeers().size() + 1) / 2) { //we have enough votes to check for quorum
+                for (Boolean vote : voteResponses.values()) {
+                    if (vote)
+                        numYeas++;
+                    else
+                        numNays++;
+                }
+                //TODO: call transition?
+                if (numYeas > numNays) { //success
+                    Logger.info(String.format("Node %s received a quorum of votes. It is now the leader", this.nodeName));
+                    transitionTo(Role.LEADER);
+                } else { //failed quorum, restart election
+                    Logger.info(String.format("Node %s did not receive a quorum of votes. Split Vote..", this.nodeName));
+                    transitionTo(Role.CANDIDATE);
+                }
+            }
+        } else {
+            Logger.info(String.format("%s received extraneous request vote response from %s:%s", this.nodeName,
+                    response.source, response.success));
+        }
+
+
+
     }
     private void handleAppendEntries(JSONObject msg) {
         AppendEntriesMessage m = AppendEntriesMessage.deserialize(msg.toString().getBytes(Charset.defaultCharset()), gson);
         boolean success = false;
-        if (currentTerm < m.getTerm()) {
+        if (currentTerm <= m.getTerm()) { //TODO: correct?
+            this.leader = m.source;
             updateTerm(m.getTerm());
             int index = m.getPrevLogIndex();
-            Entry myEntry = log.get(index);
-            if (myEntry.getTerm() == m.getPrevLogTerm()) {
+            Entry myEntry = null;
+            if (!log.isEmpty()) {
+                myEntry = log.get(index);
+            }
+            if (m.getEntries().isEmpty() || log.isEmpty() || myEntry.getTerm() == m.getPrevLogTerm()) {
                 success = true;
-                List<Entry> entries = m.getEntries();
-                log = log.subList(0, index+1);
-                log.addAll(entries);
+                if (!m.getEntries().isEmpty()) {
+                    List<Entry> entries = m.getEntries();
+                    log = log.subList(0, index + 1);
+                    log.addAll(entries);
+                }
                 int leaderCommit = m.getLeaderCommit();
                 if (leaderCommit > commitIndex)
-                    commitIndex = Math.min(leaderCommit, log.size()-1);
+                    commitIndex = Math.min(leaderCommit, log.size() - 1);
             }
-        }
 
+
+        }
         //send result
         RPCMessageResponseBuilder response = new RPCMessageResponseBuilder();
         response.setDestination(m.source);
@@ -297,7 +378,11 @@ public class Node implements Serializable {
         response.setType(MessageType.APPEND_ENTRIES_RESPONSE);
         response.setSuccess(success);
         brokerManager.sendToBroker(response.createRPCMessageResponse().serialize(gson));
+        if (success) {
+            restartElectionTimeout();
+        }
     }
+
 
     private void startNewElection() {
         currentTerm++;
@@ -312,7 +397,6 @@ public class Node implements Serializable {
         }
 
         RequestVoteMessage rvm;
-        Gson gson;
 
         for (String peer : brokerManager.getPeers()) {
             rvm = new RequestVoteMessageBuilder()
@@ -321,10 +405,13 @@ public class Node implements Serializable {
                     .setDestination(peer)
                     .setLastLogIndex(lastLogIndex)
                     .setLastLogTerm(lastLogTerm)
+                    .setSource(this.nodeName)
                     .createRequestVoteMessage();
-            gson = new Gson();
-            brokerManager.sendToBroker(rvm.serialize(gson));
+            brokerManager.sendToBroker(rvm.serialize(this.gson));
         }
+        this.voteResponses = new HashMap<>();
+        voteResponses.put(this.nodeName, true);
+        restartElectionTimeout();
     }
 
     //returns last entry or null if log is empty
@@ -347,6 +434,7 @@ public class Node implements Serializable {
                     System.exit(0);
                 }
                 this.role = role;
+                this.votedFor = null;
                 startNewElection();
                 break;
 
@@ -354,8 +442,22 @@ public class Node implements Serializable {
                 if (this.role != Role.CANDIDATE)
                     Logger.error("Error, invalid state transition to LEADER");
                 this.role = role;
-                heartBeatSend.cancel(false);
+                restartHeartBeatTimeout();
+                electionTimeout.cancel(true);
                 break;
+        }
+    }
+
+    public void sendHeartbeats() {
+        for (String peer : brokerManager.getPeers()) {
+            AppendEntriesMessage aem = new AppendEntriesMessageBuilder()
+                    .setTerm(currentTerm)
+                    .setDestination(peer)
+                    .setLeaderCommit(commitIndex)
+                    .setSource(this.nodeName)
+                    .setLeaderId(this.nodeName)
+                    .createAppendEntriesMessage();
+            brokerManager.sendToBroker(aem.serialize(gson));
         }
     }
 

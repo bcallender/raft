@@ -62,7 +62,9 @@ public class BrokerManager {
         this.reqSock.send(message);
         reqSockLock.unlock();
 
-        Logger.debug(String.format("Sent Message %s", new String(message, Charset.defaultCharset())));
+        Logger.trace(String.format("Sent Message %s", new String(message, Charset.defaultCharset())));
+
+
     }
 
 
@@ -80,6 +82,11 @@ public class BrokerManager {
             if (poller.pollin(1)) {
                 ZMsg msg = ZMsg.recvMsg(reqSock, ZMQ.DONTWAIT);
                 handleBrokerMessage(msg);
+            }
+            try {
+                Thread.sleep(1);
+            } catch (InterruptedException e) {
+                e.printStackTrace();
             }
 
         }
