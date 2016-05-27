@@ -4,10 +4,12 @@
 public class ClientCommand {
     private MessageType type;
     private String key;
+    private String value;
 
     public ClientCommand(MessageType type, String key, String value) {
         this.type = type;
         this.key = key;
+        this.value = value;
     }
 
     public MessageType getType() {
@@ -26,5 +28,12 @@ public class ClientCommand {
         this.key = key;
     }
 
+    public String getValue() {
+        return value;
+    }
+
+    public void setValue(String value) {
+        this.value = value;
+    }
 }
 

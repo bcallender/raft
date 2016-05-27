@@ -1,6 +1,5 @@
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
-import org.json.JSONException;
 import org.json.JSONObject;
 import org.zeromq.ZMsg;
 
@@ -57,23 +56,12 @@ public class Node implements Serializable {
         this.role = Role.FOLLOWER;
         this.nextIndex = new TreeMap<>();
         this.matchIndex = new TreeMap<>();
-        commandsInFlight = new TreeMap<>();
-        voteResponses = new HashMap<>();
-
+        this.commandsInFlight = new TreeMap<>();
+        this.voteResponses = new HashMap<>();
         this.heartBeatTimeoutValue = ThreadLocalRandom.current().nextInt(150, 300);
-
-        this.heartBeatSend =
-                this.executorService.scheduleAtFixedRate(new HeartbeatSender(this),
-                        HEARTBEAT_INTERVAL,
-                        HEARTBEAT_INTERVAL,
-                        TimeUnit.MILLISECONDS);
-
-
-        Logger.debug(String.format("Election timeout value for %s is %d", nodeName, heartBeatTimeoutValue));
-        heartBeatSend.cancel(true);
-
-
         this.gson = new Gson();
+
+        transitionTo(Role.FOLLOWER);
 
 
     }
@@ -104,7 +92,9 @@ public class Node implements Serializable {
 
 
     private void restartHeartBeatTimeout() {
-        this.heartBeatSend.cancel(true);
+        if (this.heartBeatSend != null) {
+            this.heartBeatSend.cancel(true);
+        }
         this.heartBeatSend =
                 this.executorService.scheduleAtFixedRate(new HeartbeatSender(this),
                         0,
@@ -163,23 +153,13 @@ public class Node implements Serializable {
         }
     }
     private void handleSetMessage(JSONObject msg) {
+        String key = msg.getString("key");
+        String value = msg.getString("value");
 
         if (this.role == Role.LEADER) { //TODO: log replication
-            try {
-                String key = msg.getString("key");
-                String value = msg.getString("value");
-                store.put(key, value);
-                JSONObject setResponse = new JSONObject();
-                setResponse.put("type", MessageType.SET_RESPONSE)
-                        .put("id", msg.get("id"))
-                        .put("key", key)
-                        .put("value", value);
-                brokerManager.sendToBroker(setResponse.toString().getBytes(CHARSET));
-            } catch (JSONException e) {
-                ErrorMessage em = new ErrorMessage(MessageType.SET_RESPONSE, null, msg.getInt("id"), this.nodeName,
-                        String.format("Invalid JSON sent to me: %s", msg.toString()));
-                brokerManager.sendToBroker(em.serialize(gson));
-            }
+            commandsInFlight.put(msg.getInt("id"), new ClientCommand(MessageType.SET, key, value));
+            Entry entry = new Entry(false, key, value, currentTerm, log.size(), msg.getInt("id"));
+            log.add(entry);
 
         } else {
             ErrorMessage em = new ErrorMessage(MessageType.SET_RESPONSE, null, msg.getInt("id"), this.nodeName,
@@ -325,7 +305,6 @@ public class Node implements Serializable {
                     else
                         numNays++;
                 }
-                //TODO: call transition?
                 if (numYeas > numNays) { //success
                     Logger.info(String.format("Node %s received a quorum of votes. It is now the leader", this.nodeName));
                     transitionTo(Role.LEADER);
@@ -429,12 +408,13 @@ public class Node implements Serializable {
     }
 
     public void transitionTo(Role role) {
+        flushCommandsInFlight();
         switch (role) {
             case FOLLOWER:
-                if (this.role != Role.LEADER)
-                    Logger.error("Error, invalid state transition to FOLLOWER");
                 this.role = role;
-                heartBeatSend.cancel(true);
+                if (heartBeatSend != null)
+                    heartBeatSend.cancel(true);
+                restartElectionTimeout();
                 break;
 
             case CANDIDATE:
@@ -451,8 +431,17 @@ public class Node implements Serializable {
                 if (this.role != Role.CANDIDATE)
                     Logger.error("Error, invalid state transition to LEADER");
                 this.role = role;
-                restartHeartBeatTimeout();
                 electionTimeout.cancel(true);
+                // resetting the nextIndex and matchIndex map
+                for (Map.Entry<String, Integer> entry : nextIndex.entrySet()) {
+                    nextIndex.put(entry.getKey(), log.size());
+                }
+                for (Map.Entry<String, Integer> entry : matchIndex.entrySet()) {
+                    matchIndex.put(entry.getKey(), 0);
+                }
+
+                restartHeartBeatTimeout();
+
                 break;
         }
     }
@@ -480,6 +469,53 @@ public class Node implements Serializable {
             //TODO persist
         }
     }
+
+    private void flushCommandsInFlight() {
+        for (Map.Entry<Integer, ClientCommand> entry : commandsInFlight.entrySet()) {
+            if (entry.getValue().getType() == MessageType.GET) {
+                ErrorMessage em = new ErrorMessage(MessageType.GET_RESPONSE, null, entry.getKey(), this.nodeName,
+                        "Cannot process request at this time, Leader election in progress");
+                brokerManager.sendToBroker(em.serialize(gson));
+            } else {
+                ErrorMessage em = new ErrorMessage(MessageType.SET_RESPONSE, null, entry.getKey(), this.nodeName,
+                        String.format("Cannot process request (%s = %s) at this time, Leader election in progress",
+                                entry.getValue().getKey(), entry.getValue().getValue()));
+                brokerManager.sendToBroker(em.serialize(gson));
+            }
+
+        }
+    }
+
+    private void applyEntryToStateMachine(Entry entry) {
+        if (!entry.applied) { //have we already applied this? TODO: necessary?
+            store.put(entry.key, entry.value);
+            entry.applied = true;
+        }
+    }
+
+    private void updateCommitIndex(int newIndex) {
+        //persist changes
+        List<Integer> persistedRequests = new ArrayList<>();
+        for (Entry e : log.subList(commitIndex, newIndex + 1)) {
+            applyEntryToStateMachine(e);
+            persistedRequests.add(e.requestId);
+        }
+        //TODO: actually persist to disk
+
+        if (this.role == Role.LEADER) {
+            //send set responses if you're the leader
+            for (Integer requestId : persistedRequests) {
+                Message m = new Message(MessageType.SET_RESPONSE, null, requestId, this.nodeName);
+                JsonObject msgToSend = m.serializeToObject(gson);
+                msgToSend.addProperty("key", commandsInFlight.get(requestId).getKey());
+                msgToSend.addProperty("value", commandsInFlight.get(requestId).getValue());
+                brokerManager.sendToBroker(msgToSend.toString().getBytes(CHARSET));
+                commandsInFlight.remove(requestId);
+            }
+        }
+    }
+
+
 
     public enum Role {FOLLOWER, CANDIDATE, LEADER}
 }
