@@ -325,7 +325,6 @@ public class Node implements Serializable {
                     else
                         numNays++;
                 }
-                //TODO: call transition?
                 if (numYeas > numNays) { //success
                     Logger.info(String.format("Node %s received a quorum of votes. It is now the leader", this.nodeName));
                     transitionTo(Role.LEADER);
