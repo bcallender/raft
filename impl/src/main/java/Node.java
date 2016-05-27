@@ -60,7 +60,7 @@ public class Node implements Serializable {
                         TimeUnit.MILLISECONDS);
 
         this.electionTimeout =
-                this.executorService.scheduleAtFixedRate(new ElectionTimeoutHandler(),
+                this.executorService.scheduleAtFixedRate(new ElectionTimeoutHandler(this),
                         heartBeatTimeoutValue,
                         heartBeatTimeoutValue,
                         TimeUnit.MILLISECONDS);
@@ -134,6 +134,22 @@ public class Node implements Serializable {
                 }
             case UNKNOWN:
         }
+    }
+
+    public int getCurrentTerm() {
+        return currentTerm;
+    }
+
+    public void setCurrentTerm(int currentTerm) {
+        this.currentTerm = currentTerm;
+    }
+
+    public String getNodeName() {
+        return nodeName;
+    }
+
+    public Entry getLastLog() {
+        return log.isEmpty() ? null : log.get(log.size() - 1);
     }
 
     private enum Role {FOLLOWER, CANDIDATE, LEADER}
