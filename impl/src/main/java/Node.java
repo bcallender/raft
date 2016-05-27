@@ -416,7 +416,6 @@ public class Node implements Serializable {
                     heartBeatSend.cancel(true);
                 if (connected) {
                     restartElectionTimeout();
-
                 }
                 break;
 
@@ -450,7 +449,11 @@ public class Node implements Serializable {
     }
 
     public void sendHeartbeats() {
-        int n = commitIndex +1; //TODO add support for skipping an index
+        int n;
+        for (n = commitIndex+1; n < log.size(); n++) {
+            if (log.get(n).getTerm() == currentTerm)
+                    break;
+        }
         int acceptedCount = 0;
         for (String peer : brokerManager.getPeers()) {
             if (matchIndex.get(peer) >= n) {
