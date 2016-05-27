@@ -474,6 +474,36 @@ public class Node implements Serializable {
         }
     }
 
+    private void applyEntryToStateMachine(Entry entry) {
+        if (!entry.applied) { //have we already applied this? TODO: necessary?
+            store.put(entry.key, entry.value);
+            entry.applied = true;
+        }
+    }
+
+    private void updateCommitIndex(int newIndex) {
+        //persist changes
+        List<Integer> persistedRequests = new ArrayList<>();
+        for (Entry e : log.subList(commitIndex, newIndex + 1)) {
+            applyEntryToStateMachine(e);
+            persistedRequests.add(e.requestId);
+        }
+        //TODO: actually persist to disk
+
+        if (this.role == Role.LEADER) {
+            //send set responses if you're the leader
+            for (Integer requestId : persistedRequests) {
+                Message m = new Message(MessageType.SET_RESPONSE, null, requestId, this.nodeName);
+                JsonObject msgToSend = m.serializeToObject(gson);
+                msgToSend.addProperty("key", commandsInFlight.get(requestId).getKey());
+                msgToSend.addProperty("value", commandsInFlight.get(requestId).getValue());
+                brokerManager.sendToBroker(msgToSend.toString().getBytes(CHARSET));
+                commandsInFlight.remove(requestId);
+            }
+        }
+    }
+
+
 
     public enum Role {FOLLOWER, CANDIDATE, LEADER}
 }
