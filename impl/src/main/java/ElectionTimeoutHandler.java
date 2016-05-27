@@ -11,6 +11,6 @@ public class ElectionTimeoutHandler implements Runnable {
 
     @Override
     public void run() {
-        parent.startNewElection();
+        parent.transitionTo(Node.Role.CANDIDATE);
     }
 }

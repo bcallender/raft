@@ -63,8 +63,6 @@ public class BrokerManager {
         reqSockLock.unlock();
 
         Logger.debug(String.format("Sent Message %s", new String(message, Charset.defaultCharset())));
-
-
     }
 
 
