@@ -360,11 +360,8 @@ public class Node implements Serializable {
             this.leader = m.source;
             updateTerm(m.getTerm());
             int index = m.getPrevLogIndex();
-            Entry myEntry = null;
-            if (!log.isEmpty()) {
-                myEntry = log.get(index);
-            }
-            if (m.getEntries().isEmpty() || log.isEmpty() || myEntry.getTerm() == m.getPrevLogTerm()) {
+            Entry myEntry = getLastEntry();
+            if (m.getEntries().isEmpty() || myEntry == null || myEntry.getTerm() == m.getPrevLogTerm()) {
                 success = true;
                 if (!m.getEntries().isEmpty()) {
                     List<Entry> entries = m.getEntries();
