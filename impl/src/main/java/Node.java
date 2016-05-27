@@ -72,7 +72,7 @@ public class Node implements Serializable {
                         4000,
                         heartBeatTimeoutValue,
                         TimeUnit.MILLISECONDS);
-        Logger.debug(String.format("Election timeout value for %s is %d", nodeName, heartBeatTimeoutValue));
+        Logger.debug(String.format("Started Election Timeout, Election timeout value for %s is %d", nodeName, heartBeatTimeoutValue));
 
 
     }
@@ -86,7 +86,7 @@ public class Node implements Serializable {
                         heartBeatTimeoutValue,
                         heartBeatTimeoutValue,
                         TimeUnit.MILLISECONDS);
-        Logger.debug(String.format("Election timeout value for %s is %d", nodeName, heartBeatTimeoutValue));
+        Logger.debug(String.format("Restarted Election Timeout, Election timeout value for %s is %d", nodeName, heartBeatTimeoutValue));
 
     }
 
@@ -373,6 +373,7 @@ public class Node implements Serializable {
     }
 
     private void startNewElection() {
+        Logger.debug(String.format("Election timeout occurred, timeout value for %s is %d", nodeName, heartBeatTimeoutValue));
         currentTerm++;
         votedFor = nodeName;
         int lastLogIndex = 0;
