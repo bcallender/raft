@@ -87,6 +87,8 @@ public class Node implements Serializable {
 
         switch (type) {
             case APPEND_ENTRIES:
+                handleAppendEntries(msg);
+                break;
             case APPEND_ENTRIES_RESPONSE:
             case REQUEST_FORWARD:
                 handleForwardRequest(msg);
@@ -249,9 +251,9 @@ public class Node implements Serializable {
             updateTerm(voteTerm);
             int logTerm = m.getLastLogTerm();
             int logIndex = m.getLastLogIndex();
-            int lastIndex = log.size()-1;
+            Entry lastEntry = getLastEntry();
             //if log is empty then the other is vacuously up to date, otherwise compare them for recency
-            if (log.isEmpty() || (log.get(lastIndex).moreRecentThan(logTerm, lastIndex, logIndex))) {
+            if (lastEntry == null || (lastEntry.moreRecentThan(logTerm, logIndex))) {
                 votedFor = candidateId;
                success = true;
             }
@@ -269,6 +271,33 @@ public class Node implements Serializable {
     private void handleRequestVoteResponse(JSONObject msg) {
 
     }
+    private void handleAppendEntries(JSONObject msg) {
+        AppendEntriesMessage m = AppendEntriesMessage.deserialize(msg.toString().getBytes(Charset.defaultCharset()), gson);
+        boolean success = false;
+        if (currentTerm < m.getTerm()) {
+            updateTerm(m.getTerm());
+            int index = m.getPrevLogIndex();
+            Entry myEntry = log.get(index);
+            if (myEntry.getTerm() == m.getPrevLogTerm()) {
+                success = true;
+                List<Entry> entries = m.getEntries();
+                log = log.subList(0, index+1);
+                log.addAll(entries);
+                int leaderCommit = m.getLeaderCommit();
+                if (leaderCommit > commitIndex)
+                    commitIndex = Math.min(leaderCommit, log.size()-1);
+            }
+        }
+
+        //send result
+        RPCMessageResponseBuilder response = new RPCMessageResponseBuilder();
+        response.setDestination(m.source);
+        response.setSource(nodeName);
+        response.setTerm(currentTerm);
+        response.setType(MessageType.APPEND_ENTRIES_RESPONSE);
+        response.setSuccess(success);
+        brokerManager.sendToBroker(response.createRPCMessageResponse().serialize(gson));
+    }
 
     public void startNewElection() {
         currentTerm++;
@@ -276,7 +305,7 @@ public class Node implements Serializable {
         int lastLogIndex = 0;
         int lastLogTerm = 0;
 
-        Entry lastEntry = getLastLog();
+        Entry lastEntry = getLastEntry();
         if (lastEntry != null) {
             lastLogIndex = lastEntry.index;
             lastLogTerm = lastEntry.term;
@@ -298,7 +327,8 @@ public class Node implements Serializable {
         }
     }
 
-    private Entry getLastLog() {
+    //returns last entry or null if log is empty
+    private Entry getLastEntry() {
         return log.isEmpty() ? null : log.get(log.size() - 1);
     }
 
