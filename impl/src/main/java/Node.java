@@ -14,7 +14,7 @@ import java.util.concurrent.*;
 public class Node implements Serializable {
 
     public static final Charset CHARSET = Charset.defaultCharset();
-    private static final int HEARTBEAT_INTERVAL = 50;
+    private static final int HEARTBEAT_INTERVAL = 100;
     private final ScheduledExecutorService executorService = Executors.newScheduledThreadPool(1);
     //volatile on all
     int commitIndex;
@@ -58,7 +58,7 @@ public class Node implements Serializable {
         this.matchIndex = new TreeMap<>();
         this.commandsInFlight = new TreeMap<>();
         this.voteResponses = new HashMap<>();
-        this.heartBeatTimeoutValue = ThreadLocalRandom.current().nextInt(150, 300);
+        this.heartBeatTimeoutValue = ThreadLocalRandom.current().nextInt(500, 750);
         this.gson = new Gson();
 
         transitionTo(Role.FOLLOWER);
@@ -339,7 +339,7 @@ public class Node implements Serializable {
                 }
                 int leaderCommit = m.getLeaderCommit();
                 if (leaderCommit > commitIndex)
-                    commitIndex = Math.min(leaderCommit, log.size() - 1);
+                    updateCommitIndex(Math.min(leaderCommit, log.size() - 1));
                     //TODO persist commits
             }
             restartElectionTimeout();
@@ -414,7 +414,10 @@ public class Node implements Serializable {
                 this.role = role;
                 if (heartBeatSend != null)
                     heartBeatSend.cancel(true);
-                restartElectionTimeout();
+                if (connected) {
+                    restartElectionTimeout();
+
+                }
                 break;
 
             case CANDIDATE:
@@ -465,7 +468,7 @@ public class Node implements Serializable {
         }
 
         if (acceptedCount > brokerManager.getPeers().size()/2 && log.get(n).getTerm() == currentTerm) {
-            commitIndex = n;
+            updateCommitIndex(n);
             //TODO persist
         }
     }
