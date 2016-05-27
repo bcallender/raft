@@ -1,6 +1,5 @@
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
-import org.json.JSONException;
 import org.json.JSONObject;
 import org.zeromq.ZMsg;
 
@@ -159,20 +158,8 @@ public class Node implements Serializable {
 
         if (this.role == Role.LEADER) { //TODO: log replication
             commandsInFlight.put(msg.getInt("id"), new ClientCommand(MessageType.SET, key, value));
-            try {
-
-                store.put(key, value);
-                JSONObject setResponse = new JSONObject();
-                setResponse.put("type", MessageType.SET_RESPONSE)
-                        .put("id", msg.get("id"))
-                        .put("key", key)
-                        .put("value", value);
-                brokerManager.sendToBroker(setResponse.toString().getBytes(CHARSET));
-            } catch (JSONException e) {
-                ErrorMessage em = new ErrorMessage(MessageType.SET_RESPONSE, null, msg.getInt("id"), this.nodeName,
-                        String.format("Invalid JSON sent to me: %s", msg.toString()));
-                brokerManager.sendToBroker(em.serialize(gson));
-            }
+            Entry entry = new Entry(false, key, value, currentTerm, log.size(), msg.getInt("id"));
+            log.add(entry);
 
         } else {
             ErrorMessage em = new ErrorMessage(MessageType.SET_RESPONSE, null, msg.getInt("id"), this.nodeName,
@@ -354,7 +341,6 @@ public class Node implements Serializable {
                 if (leaderCommit > commitIndex)
                     commitIndex = Math.min(leaderCommit, log.size() - 1);
             }
-
 
         }
         //send result

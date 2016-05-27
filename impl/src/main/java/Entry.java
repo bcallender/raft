@@ -7,25 +7,25 @@ public class Entry implements Serializable {
 
 
     boolean applied;
-    EntryType entryType;
 
     String key;
     String value;
     int term;
     int index;
+    int requestId;
 
-    public int getTerm() {
-        return term;
-    }
-
-    public Entry(boolean applied, EntryType entryType, String key, String value, int term, int index) {
+    public Entry(boolean applied, String key, String value, int term, int index, int requestId) {
         this.applied = applied;
-        this.entryType = entryType;
         this.key = key;
         this.value = value;
         this.term = term;
         this.index = index;
+        this.requestId = requestId;
 
+    }
+
+    public int getTerm() {
+        return term;
     }
 
     public boolean conflictsWith(Entry e) {
@@ -34,7 +34,5 @@ public class Entry implements Serializable {
     public boolean moreRecentThan(int otherTerm, int otherIdx) {
         return (otherTerm < term) || (otherTerm == term && index > otherIdx);
     }
-
-    protected enum EntryType {SET, GET}
 
 }
