@@ -12,3 +12,19 @@ State transitions across LEADER/FOLLOWER/CANDIDATE
 Forwarding messages from followers to leader
 
 Issues -- Concurrent timeouts and sending on the socket.
+
+
+Forward Message Structure:
+--------------------------
+| "type" : Forward                         |
+| "id" : request_id       |
+| "key" : key                        |
+| "source" : source_node             |
+
+
+forward response
+type:forward_response
+id: id
+key: key
+value: value
+source: source

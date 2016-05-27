@@ -1,4 +1,3 @@
-import com.google.gson.Gson;
 import org.zeromq.ZContext;
 import org.zeromq.ZMQ;
 import org.zeromq.ZMsg;
@@ -21,7 +20,6 @@ public class BrokerManager {
     private String routerEndpoint;
     private List<String> peers;
     private boolean debug;
-    private Gson gson;
     private ReentrantLock reqSockLock;
 
     public BrokerManager(List<String> peers, String nodeName, String pubEndpoint, String routerEndpoint) {
@@ -48,7 +46,7 @@ public class BrokerManager {
 
         this.debug = true;
         Logger.setMasterLogLevel(Logger.LogLevel.DEBUG);
-        this.gson = new Gson();
+
 
         this.node = new Node(nodeName, this);
     }
@@ -64,8 +62,7 @@ public class BrokerManager {
         this.reqSock.send(message);
         reqSockLock.unlock();
 
-        Logger.log(Logger.LogLevel.DEBUG,
-                String.format("Sent Message %s", new String(message, Charset.defaultCharset())));
+        Logger.debug(String.format("Sent Message %s", new String(message, Charset.defaultCharset())));
 
 
     }
@@ -78,7 +75,7 @@ public class BrokerManager {
             //subSock registered at index '0'
             if (poller.pollin(0)) {
                 ZMsg msg = ZMsg.recvMsg(subSock, ZMQ.DONTWAIT);
-                //Node.handleMessage(this, msg);
+                node.handleMessage(msg);
             }
 
             //reqSock registered at index '1'

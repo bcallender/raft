@@ -4,8 +4,19 @@ import com.google.gson.annotations.SerializedName;
  * Created by brandon on 5/22/16.
  */
 public enum MessageType {
-    GET("get"), SET("set"), DUPL("dupl"), HELLO("hello"), HELLO_RESPONSE("helloResponse"),
-    UNKNOWN("UNKNOWN"), SET_RESPONSE("setResponse"), GET_RESPONSE("getResponse"),
+    @SerializedName("get")
+    GET("get"),
+    @SerializedName("set")
+    SET("set"),
+    @SerializedName("hello")
+    HELLO("hello"),
+    @SerializedName("helloResponse")
+    HELLO_RESPONSE("helloResponse"),
+    UNKNOWN("UNKNOWN"),
+    @SerializedName("setResponse")
+    SET_RESPONSE("setResponse"),
+    @SerializedName("getResponse")
+    GET_RESPONSE("getResponse"),
     @SerializedName("requestVote")
     REQUEST_VOTE("requestVote"),
     @SerializedName("appendEntries")

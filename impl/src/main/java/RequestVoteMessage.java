@@ -26,4 +26,20 @@ public class RequestVoteMessage extends Message implements Serializable {
         String jsonPayload = new String(payload, Charset.defaultCharset());
         return gson.fromJson(jsonPayload, RequestVoteMessage.class);
     }
+
+    public int getTerm() {
+        return term;
+    }
+
+    public String getCandidateId() {
+        return candidateId;
+    }
+
+    public int getLastLogIndex() {
+        return lastLogIndex;
+    }
+
+    public int getLastLogTerm() {
+        return lastLogTerm;
+    }
 }

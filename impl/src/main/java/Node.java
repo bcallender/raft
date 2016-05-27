@@ -1,12 +1,11 @@
+import com.google.gson.Gson;
+import com.google.gson.JsonObject;
 import org.json.JSONObject;
 import org.zeromq.ZMsg;
 
 import java.io.Serializable;
 import java.nio.charset.Charset;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.concurrent.*;
 
 /**
@@ -19,15 +18,17 @@ public class Node implements Serializable {
     private final ScheduledExecutorService executorService = Executors.newScheduledThreadPool(1);
     private final ScheduledFuture<?> heartBeatSend;
     private final ScheduledFuture<?> electionTimeout;
-
     //volatile on all
     int commitIndex;
     int lastApplied;
     Role role;
+    String leader;
     //volatile on master
     int nextIndex;
     int matchIndex;
     List<Entry> log;
+    private Gson gson;
+    private Map<Integer, ClientCommand> commandsInFlight;
     private BrokerManager brokerManager;
     private Map<String, String> store;
     private String nodeName;
@@ -47,8 +48,15 @@ public class Node implements Serializable {
         this.commitIndex = 0;
         this.lastApplied = 0;
         this.role = Role.FOLLOWER;
+        //TODO debugging
+        if (this.nodeName.equals("node-2")) {
+            this.role = Role.LEADER;
+        } else {
+            this.leader = "node-2";
+        }
         this.nextIndex = 0;
         this.matchIndex = 0;
+        commandsInFlight = new TreeMap<>();
 
 
         int heartBeatTimeoutValue = ThreadLocalRandom.current().nextInt(150, 301);
@@ -60,12 +68,14 @@ public class Node implements Serializable {
                         TimeUnit.MILLISECONDS);
 
         this.electionTimeout =
-                this.executorService.scheduleAtFixedRate(new ElectionTimeoutHandler(this),
+                this.executorService.scheduleAtFixedRate(new ElectionTimeoutHandler(),
                         heartBeatTimeoutValue,
                         heartBeatTimeoutValue,
                         TimeUnit.MILLISECONDS);
-        Logger.log(Logger.LogLevel.DEBUG, String.format("Election timeout value for %s is %d", nodeName, heartBeatTimeoutValue));
+        Logger.debug(String.format("Election timeout value for %s is %d", nodeName, heartBeatTimeoutValue));
         heartBeatSend.cancel(true);
+
+        this.gson = new Gson();
 
 
     }
@@ -79,78 +89,185 @@ public class Node implements Serializable {
             case APPEND_ENTRIES:
             case APPEND_ENTRIES_RESPONSE:
             case REQUEST_FORWARD:
-            case REQUEST_FORWARD_RESPONSE:
-            case REQUEST_VOTE:
-            case REQUEST_VOTE_RESPONSE:
-            case GET:
-                String k = msg.getString("key");
-
-                JSONObject m = new JSONObject();
-                if (store.containsKey(k)) {
-                    String val = store.get(k);
-                    m.put("type", "getResponse");
-                    m.put("id", msg.get("id"));
-                    m.put("key", k);
-                    m.put("value", val);
-                } else {
-                    m.put("type", "getResponse");
-                    m.put("id", msg.get("id"));
-                    m.put("error", String.format("No such key: %s", k));
-
-                }
-                brokerManager.sendToBroker(m.toString().getBytes(Charset.defaultCharset()));
+                handleForwardRequest(msg);
                 break;
-            case DUPL:
-                String key = msg.getString("key");
-                String value = msg.getString("value");
-                store.put(key, value);
+            case REQUEST_FORWARD_RESPONSE:
+                handleForwardRequestResponse(msg);
+                break;
+            case REQUEST_VOTE:
+                handleRequestVote(msg);
+                break;
+            case REQUEST_VOTE_RESPONSE:
+                handleRequestVoteResponse(msg);
+                break;
+            case GET:
+                handleGetMessage(msg);
                 break;
             case SET:
-                key = msg.getString("key");
-                value = msg.getString("value");
-                store.put(key, value);
-                for (String peer : brokerManager.getPeers()) {
-                    JSONObject dupl = new JSONObject();
-                    dupl.put("type", MessageType.DUPL)
-                            .put("destination", peer)
-                            .put("key", key)
-                            .put("value", value);
-                    brokerManager.sendToBroker(dupl.toString().getBytes());
-                }
-                JSONObject setResponse = new JSONObject();
-                setResponse.put("type", MessageType.SET_RESPONSE)
-                        .put("id", msg.get("id"))
-                        .put("key", key)
-                        .put("value", value);
-                brokerManager.sendToBroker(setResponse.toString().getBytes(Charset.defaultCharset()));
-
+                handleSetMessage(msg);
                 break;
             case HELLO:
                 if (!connected) {
                     connected = true;
                     JSONObject hr = new JSONObject(String.format("{'type': 'helloResponse', 'source': %s}", nodeName));
                     brokerManager.sendToBroker(hr.toString().getBytes(Charset.defaultCharset()));
-                    Logger.log(Logger.LogLevel.INFO, "BrokerManager Running");
+                    Logger.info("BrokerManager Running");
                 }
             case UNKNOWN:
         }
     }
 
-    public int getCurrentTerm() {
-        return currentTerm;
+    //updates state to newTerm, does nothing if newTerm is stale
+    private void updateTerm(int newTerm) {
+        if (newTerm > currentTerm) {
+            currentTerm = newTerm;
+            votedFor = null;
+            this.role = Role.FOLLOWER;
+        }
+    }
+    private void handleSetMessage(JSONObject msg) {
+
+        if (this.role == Role.LEADER) { //TODO: log replication
+            String key = msg.getString("key");
+            String value = msg.getString("value");
+            store.put(key, value);
+            JSONObject setResponse = new JSONObject();
+            setResponse.put("type", MessageType.SET_RESPONSE)
+                    .put("id", msg.get("id"))
+                    .put("key", key)
+                    .put("value", value);
+            brokerManager.sendToBroker(setResponse.toString().getBytes(Charset.defaultCharset()));
+        } else {
+            ErrorMessage em = new ErrorMessage(MessageType.SET_RESPONSE, null, msg.getInt("id"), this.nodeName,
+                    String.format("SET commands may only be sent to leader node. I think the current leader is %s", this.leader));
+            brokerManager.sendToBroker(em.serialize(gson));
+        }
+
     }
 
-    public void setCurrentTerm(int currentTerm) {
-        this.currentTerm = currentTerm;
+    private void handleForwardRequestResponse(JSONObject msg) {
+
+        int id = msg.getInt("id");
+        //is this reply stale? (my inFlight table has been flushed since i sent this)
+        if (commandsInFlight.containsKey(id)) {
+            //is this an error?
+            commandsInFlight.remove(id);
+            if (msg.has("error")) {
+                ErrorMessage response = ErrorMessage.deserialize(msg.toString(), gson);
+                ErrorMessage reply = new ErrorMessage(MessageType.GET_RESPONSE, null, id, this.nodeName, response.getError());
+                brokerManager.sendToBroker(reply.serialize(gson));
+            } else { //message has the data we need!
+                String key = msg.getString("key");
+                Message m = new Message(MessageType.GET_RESPONSE, null, id, this.nodeName);
+                JsonObject toSend = m.serializeToObject(gson);
+                toSend.addProperty("key", key);
+                toSend.addProperty("value", msg.getString("value"));
+                brokerManager.sendToBroker(toSend.toString().getBytes(Charset.defaultCharset()));
+            }
+        }
+
+        //drop message if stale
     }
 
-    public String getNodeName() {
-        return nodeName;
+    private void handleForwardRequest(JSONObject msg) {
+        String key = msg.getString("key");
+        int id = msg.getInt("id");
+        String source = msg.getString("source");
+        //am i the leader?
+        if (this.role == Role.LEADER) {
+            if (store.containsKey(key)) {
+                Message m = new Message(MessageType.REQUEST_FORWARD_RESPONSE, source, id, this.nodeName);
+                JsonObject reply = m.serializeToObject(gson);
+                reply.addProperty("key", key);
+                reply.addProperty("value", store.get(key));
+                brokerManager.sendToBroker(reply.toString().getBytes(Charset.defaultCharset()));
+            } else {
+                ErrorMessage em = new ErrorMessage(MessageType.REQUEST_FORWARD_RESPONSE, source, id, this.nodeName,
+                        String.format("No such key: %s", key));
+                brokerManager.sendToBroker(em.serialize(gson));
+            }
+        } else {
+            ErrorMessage em = new ErrorMessage(MessageType.REQUEST_FORWARD_RESPONSE, source, id, this.nodeName,
+                    "Cannot identify leader -- no referenced at follower perceived leader");
+            brokerManager.sendToBroker(em.serialize(gson));
+        }
+
     }
 
-    public Entry getLastLog() {
-        return log.isEmpty() ? null : log.get(log.size() - 1);
+    private void handleGetMessage(JSONObject msg) {
+
+        String key = msg.getString("key");
+        int id = msg.getInt("id");
+        ClientCommand command = new ClientCommand(MessageType.GET, key, null);
+        commandsInFlight.put(id, command);
+        //am I the leader?
+        if (this.role == Role.LEADER) {
+            //return the latest value from the store TODO:check if still leader?
+
+
+            if (store.containsKey(key)) {
+
+                Message m = new Message(MessageType.GET_RESPONSE, null, id, this.nodeName);
+                JsonObject getResp = m.serializeToObject(gson);
+                getResp.addProperty("key", key);
+                getResp.addProperty("value", store.get(key));
+                brokerManager.sendToBroker(getResp.toString().getBytes(Charset.defaultCharset()));
+
+            } else {
+                ErrorMessage em = new ErrorMessage(MessageType.GET_RESPONSE, null, id, this.nodeName,
+                        String.format("No such key: %s", key));
+                brokerManager.sendToBroker(em.serialize(gson));
+            }
+
+            commandsInFlight.remove(id);
+
+
+        } else { //i'm not the leader, I need to get the value from the leader
+            //do we know who the leader is?
+            if (leader != null) {
+                Message m = new Message(MessageType.REQUEST_FORWARD, leader, id, this.nodeName);
+                JsonObject fwd = m.serializeToObject(gson);
+                fwd.addProperty("key", key);
+                brokerManager.sendToBroker(fwd.toString().getBytes(Charset.defaultCharset()));
+            } else { //current leader unknown
+                ErrorMessage em = new ErrorMessage(MessageType.GET_RESPONSE, null, id, this.nodeName,
+                        String.format("Cannot identify Leader -- no reference at follower: %s", key));
+                brokerManager.sendToBroker(em.serialize(gson));
+                commandsInFlight.remove(id);
+            }
+        }
     }
 
+    private void handleRequestVote(JSONObject msg) {
+        RequestVoteMessage m = RequestVoteMessage.deserialize(msg.toString().getBytes(Charset.defaultCharset()), gson);
+        int voteTerm = m.getTerm();
+        String candidateId = m.getCandidateId();
+        boolean success = false;
+        //if the message is a later term than ours or we have yet to vote
+        if (voteTerm > currentTerm || (voteTerm == currentTerm && (votedFor == null || votedFor.equals(candidateId)))) {
+            /* voteTerm and currentTerm currently checked twice, can possibly be corrected */
+            updateTerm(voteTerm);
+            int logTerm = m.getLastLogTerm();
+            int logIndex = m.getLastLogIndex();
+            int lastIndex = log.size()-1;
+            //if log is empty then the other is vacuously up to date, otherwise compare them for recency
+            if (log.isEmpty() || (log.get(lastIndex).moreRecentThan(logTerm, lastIndex, logIndex))) {
+                votedFor = candidateId;
+               success = true;
+            }
+        }
+        //send result
+        RPCMessageResponseBuilder response = new RPCMessageResponseBuilder();
+        response.setDestination(m.source);
+        response.setSource(nodeName);
+        response.setTerm(voteTerm);
+        response.setType(MessageType.REQUEST_VOTE_RESPONSE);
+        response.setSuccess(success);
+        brokerManager.sendToBroker(response.createRPCMessageResponse().serialize(gson));
+    }
+
+    private void handleRequestVoteResponse(JSONObject msg) {
+
+    }
     private enum Role {FOLLOWER, CANDIDATE, LEADER}
 }
