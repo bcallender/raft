@@ -14,8 +14,8 @@ import java.util.concurrent.*;
  */
 public class Node implements Serializable {
 
-    private static final int HEARTBEAT_INTERVAL = 2500;
-
+    public static final Charset CHARSET = Charset.defaultCharset();
+    private static final int HEARTBEAT_INTERVAL = 50;
     private final ScheduledExecutorService executorService = Executors.newScheduledThreadPool(1);
     //volatile on all
     int commitIndex;
@@ -55,18 +55,12 @@ public class Node implements Serializable {
         this.commitIndex = 0;
         this.lastApplied = 0;
         this.role = Role.FOLLOWER;
-        //TODO debugging
-        if (this.nodeName.equals("node-2")) {
-            this.role = Role.LEADER;
-        } else {
-            this.leader = "node-2";
-        }
         this.nextIndex = new TreeMap<>();
         this.matchIndex = new TreeMap<>();
         commandsInFlight = new TreeMap<>();
         voteResponses = new HashMap<>();
 
-        this.heartBeatTimeoutValue = ThreadLocalRandom.current().nextInt(5000, 10000);
+        this.heartBeatTimeoutValue = ThreadLocalRandom.current().nextInt(150, 300);
 
         this.heartBeatSend =
                 this.executorService.scheduleAtFixedRate(new HeartbeatSender(this),
@@ -84,14 +78,10 @@ public class Node implements Serializable {
 
     }
 
-    public int getCurrentTerm() {
-        return currentTerm;
-    }
-
     private void startElectionTimeout() {
         this.electionTimeout =
                 this.executorService.scheduleAtFixedRate(new ElectionTimeoutHandler(this),
-                        5000,
+                        4000,
                         heartBeatTimeoutValue,
                         TimeUnit.MILLISECONDS);
         Logger.debug(String.format("Election timeout value for %s is %d", nodeName, heartBeatTimeoutValue));
@@ -156,7 +146,7 @@ public class Node implements Serializable {
                 if (!connected) {
                     connected = true;
                     JSONObject hr = new JSONObject(String.format("{'type': 'helloResponse', 'source': %s}", nodeName));
-                    brokerManager.sendToBroker(hr.toString().getBytes(Charset.defaultCharset()));
+                    brokerManager.sendToBroker(hr.toString().getBytes(CHARSET));
                     Logger.info("BrokerManager Running");
                     startElectionTimeout();
                 }
@@ -184,7 +174,7 @@ public class Node implements Serializable {
                         .put("id", msg.get("id"))
                         .put("key", key)
                         .put("value", value);
-                brokerManager.sendToBroker(setResponse.toString().getBytes(Charset.defaultCharset()));
+                brokerManager.sendToBroker(setResponse.toString().getBytes(CHARSET));
             } catch (JSONException e) {
                 ErrorMessage em = new ErrorMessage(MessageType.SET_RESPONSE, null, msg.getInt("id"), this.nodeName,
                         String.format("Invalid JSON sent to me: %s", msg.toString()));
@@ -216,7 +206,7 @@ public class Node implements Serializable {
                 JsonObject toSend = m.serializeToObject(gson);
                 toSend.addProperty("key", key);
                 toSend.addProperty("value", msg.getString("value"));
-                brokerManager.sendToBroker(toSend.toString().getBytes(Charset.defaultCharset()));
+                brokerManager.sendToBroker(toSend.toString().getBytes(CHARSET));
             }
         }
 
@@ -234,7 +224,7 @@ public class Node implements Serializable {
                 JsonObject reply = m.serializeToObject(gson);
                 reply.addProperty("key", key);
                 reply.addProperty("value", store.get(key));
-                brokerManager.sendToBroker(reply.toString().getBytes(Charset.defaultCharset()));
+                brokerManager.sendToBroker(reply.toString().getBytes(CHARSET));
             } else {
                 ErrorMessage em = new ErrorMessage(MessageType.REQUEST_FORWARD_RESPONSE, source, id, this.nodeName,
                         String.format("No such key: %s", key));
@@ -265,7 +255,7 @@ public class Node implements Serializable {
                 JsonObject getResp = m.serializeToObject(gson);
                 getResp.addProperty("key", key);
                 getResp.addProperty("value", store.get(key));
-                brokerManager.sendToBroker(getResp.toString().getBytes(Charset.defaultCharset()));
+                brokerManager.sendToBroker(getResp.toString().getBytes(CHARSET));
 
             } else {
                 ErrorMessage em = new ErrorMessage(MessageType.GET_RESPONSE, null, id, this.nodeName,
@@ -282,7 +272,7 @@ public class Node implements Serializable {
                 Message m = new Message(MessageType.REQUEST_FORWARD, leader, id, this.nodeName);
                 JsonObject fwd = m.serializeToObject(gson);
                 fwd.addProperty("key", key);
-                brokerManager.sendToBroker(fwd.toString().getBytes(Charset.defaultCharset()));
+                brokerManager.sendToBroker(fwd.toString().getBytes(CHARSET));
             } else { //current leader unknown
                 ErrorMessage em = new ErrorMessage(MessageType.GET_RESPONSE, null, id, this.nodeName,
                         String.format("Cannot identify Leader -- no reference at follower: %s", key));
@@ -293,7 +283,7 @@ public class Node implements Serializable {
     }
 
     private void handleRequestVote(JSONObject msg) {
-        RequestVoteMessage m = RequestVoteMessage.deserialize(msg.toString().getBytes(Charset.defaultCharset()), gson);
+        RequestVoteMessage m = RequestVoteMessage.deserialize(msg.toString().getBytes(CHARSET), gson);
         int voteTerm = m.getTerm();
         String candidateId = m.getCandidateId();
         boolean success = false;
@@ -322,7 +312,7 @@ public class Node implements Serializable {
 
     private void handleRequestVoteResponse(JSONObject msg) {
 
-        RPCMessageResponse response = RPCMessageResponse.deserialize(msg.toString().getBytes(Charset.defaultCharset()),
+        RPCMessageResponse response = RPCMessageResponse.deserialize(msg.toString().getBytes(CHARSET),
                 gson);
         if (this.role == Role.CANDIDATE) {
             this.voteResponses.put(response.source, response.success);
@@ -354,7 +344,7 @@ public class Node implements Serializable {
     }
 
     private void handleAppendEntries(JSONObject msg) {
-        AppendEntriesMessage m = AppendEntriesMessage.deserialize(msg.toString().getBytes(Charset.defaultCharset()), gson);
+        AppendEntriesMessage m = AppendEntriesMessage.deserialize(msg.toString().getBytes(CHARSET), gson);
         boolean success = false;
         if (currentTerm <= m.getTerm()) { //TODO: correct?
             this.leader = m.source;
