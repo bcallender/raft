@@ -5,6 +5,11 @@ public class RPCMessageResponseBuilder {
     private String source;
     private int term;
     private boolean success;
+    private int logIndex;
+
+    public void setLogIndex(int logIndex) {
+        this.logIndex = logIndex;
+    }
 
     public RPCMessageResponseBuilder setType(MessageType type) {
         this.type = type;
@@ -37,6 +42,6 @@ public class RPCMessageResponseBuilder {
     }
 
     public RPCMessageResponse createRPCMessageResponse() {
-        return new RPCMessageResponse(type, destination, id, source, term, success);
+        return new RPCMessageResponse(type, destination, id, source, term, success, logIndex);
     }
 }

@@ -9,11 +9,13 @@ import java.nio.charset.Charset;
 public class RPCMessageResponse extends Message implements Serializable {
     int term;
     boolean success;
-
-    public RPCMessageResponse(MessageType type, String destination, int id, String source, int term, boolean success) {
+    int logIndex;
+    
+    public RPCMessageResponse(MessageType type, String destination, int id, String source, int term, boolean success, int logIndex) {
         super(type, destination, id, source);
         this.term = term;
         this.success = success;
+        this.logIndex = logIndex;
     }
 
     public static RPCMessageResponse deserialize(byte[] payload, Gson gson) {

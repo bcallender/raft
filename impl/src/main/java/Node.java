@@ -24,8 +24,8 @@ public class Node implements Serializable {
     Role role;
     String leader;
     //volatile on master
-    int nextIndex;
-    int matchIndex;
+    Map<String, Integer> nextIndex;
+    Map<String, Integer> matchIndex;
     List<Entry> log;
     private Gson gson;
     private Map<Integer, ClientCommand> commandsInFlight;
@@ -54,8 +54,8 @@ public class Node implements Serializable {
         } else {
             this.leader = "node-2";
         }
-        this.nextIndex = 0;
-        this.matchIndex = 0;
+        this.nextIndex = new TreeMap<>();
+        this.matchIndex = new TreeMap<>();
         commandsInFlight = new TreeMap<>();
 
 
@@ -90,6 +90,8 @@ public class Node implements Serializable {
                 handleAppendEntries(msg);
                 break;
             case APPEND_ENTRIES_RESPONSE:
+                handleAppendEntriesResponse(msg);
+                break;
             case REQUEST_FORWARD:
                 handleForwardRequest(msg);
                 break;
@@ -255,7 +257,7 @@ public class Node implements Serializable {
             //if log is empty then the other is vacuously up to date, otherwise compare them for recency
             if (lastEntry == null || (lastEntry.moreRecentThan(logTerm, logIndex))) {
                 votedFor = candidateId;
-               success = true;
+                success = true;
             }
         }
         //send result
@@ -271,6 +273,7 @@ public class Node implements Serializable {
     private void handleRequestVoteResponse(JSONObject msg) {
 
     }
+
     private void handleAppendEntries(JSONObject msg) {
         AppendEntriesMessage m = AppendEntriesMessage.deserialize(msg.toString().getBytes(Charset.defaultCharset()), gson);
         boolean success = false;
@@ -296,7 +299,21 @@ public class Node implements Serializable {
         response.setTerm(currentTerm);
         response.setType(MessageType.APPEND_ENTRIES_RESPONSE);
         response.setSuccess(success);
+        response.setLogIndex(commitIndex);
         brokerManager.sendToBroker(response.createRPCMessageResponse().serialize(gson));
+    }
+
+    public void handleAppendEntriesResponse(JSONObject msg) {
+        if (role == Role.LEADER) {
+            RPCMessageResponse m = RPCMessageResponse.deserialize(msg.toString().getBytes(Charset.defaultCharset()), gson);
+            if (m.success) { //on success update recorded state for that node
+                matchIndex.put(m.source, m.logIndex);
+            } else { //on failure decrement relevant nextIndex for next send
+                Integer next = nextIndex.get(m.source) -1;
+                nextIndex.put(m.source, next);
+            }
+        }
+        //drop message if not leader
     }
 
     private void startNewElection() {
