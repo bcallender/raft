@@ -163,11 +163,13 @@ public class Node implements Serializable {
         }
     }
     private void handleSetMessage(JSONObject msg) {
+        String key = msg.getString("key");
+        String value = msg.getString("value");
 
         if (this.role == Role.LEADER) { //TODO: log replication
+            commandsInFlight.put(msg.getInt("id"), new ClientCommand(MessageType.SET, key, value));
             try {
-                String key = msg.getString("key");
-                String value = msg.getString("value");
+
                 store.put(key, value);
                 JSONObject setResponse = new JSONObject();
                 setResponse.put("type", MessageType.SET_RESPONSE)
@@ -325,7 +327,6 @@ public class Node implements Serializable {
                     else
                         numNays++;
                 }
-                //TODO: call transition?
                 if (numYeas > numNays) { //success
                     Logger.info(String.format("Node %s received a quorum of votes. It is now the leader", this.nodeName));
                     transitionTo(Role.LEADER);
@@ -429,6 +430,7 @@ public class Node implements Serializable {
     }
 
     public void transitionTo(Role role) {
+        flushCommandsInFlight();
         switch (role) {
             case FOLLOWER:
                 if (this.role != Role.LEADER)
@@ -469,6 +471,23 @@ public class Node implements Serializable {
             brokerManager.sendToBroker(aem.serialize(gson));
         }
     }
+
+    private void flushCommandsInFlight() {
+        for (Map.Entry<Integer, ClientCommand> entry : commandsInFlight.entrySet()) {
+            if (entry.getValue().getType() == MessageType.GET) {
+                ErrorMessage em = new ErrorMessage(MessageType.GET_RESPONSE, null, entry.getKey(), this.nodeName,
+                        "Cannot process request at this time, Leader election in progress");
+                brokerManager.sendToBroker(em.serialize(gson));
+            } else {
+                ErrorMessage em = new ErrorMessage(MessageType.SET_RESPONSE, null, entry.getKey(), this.nodeName,
+                        String.format("Cannot process request (%s = %s) at this time, Leader election in progress",
+                                entry.getValue().getKey(), entry.getValue().getValue()));
+                brokerManager.sendToBroker(em.serialize(gson));
+            }
+
+        }
+    }
+
 
     public enum Role {FOLLOWER, CANDIDATE, LEADER}
 }
