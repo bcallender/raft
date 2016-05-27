@@ -14,7 +14,7 @@ import java.util.concurrent.*;
 public class Node implements Serializable {
 
     public static final Charset CHARSET = Charset.defaultCharset();
-    private static final int HEARTBEAT_INTERVAL = 100;
+    private static final int HEARTBEAT_INTERVAL = 5000;
     private final ScheduledExecutorService executorService = Executors.newScheduledThreadPool(1);
     //volatile on all
     int commitIndex;
@@ -58,7 +58,7 @@ public class Node implements Serializable {
         this.matchIndex = new TreeMap<>();
         this.commandsInFlight = new TreeMap<>();
         this.voteResponses = new HashMap<>();
-        this.heartBeatTimeoutValue = ThreadLocalRandom.current().nextInt(500, 750);
+        this.heartBeatTimeoutValue = ThreadLocalRandom.current().nextInt(10000, 15000);
         this.gson = new Gson();
 
         transitionTo(Role.FOLLOWER);
@@ -436,11 +436,9 @@ public class Node implements Serializable {
                 this.role = role;
                 electionTimeout.cancel(true);
                 // resetting the nextIndex and matchIndex map
-                for (Map.Entry<String, Integer> entry : nextIndex.entrySet()) {
-                    nextIndex.put(entry.getKey(), log.size());
-                }
-                for (Map.Entry<String, Integer> entry : matchIndex.entrySet()) {
-                    matchIndex.put(entry.getKey(), 0);
+                for (String peer : brokerManager.getPeers()) {
+                    matchIndex.put(peer, 0);
+                    nextIndex.put(peer, log.size());
                 }
 
                 restartHeartBeatTimeout();
