@@ -159,7 +159,7 @@ public class Node implements Serializable {
         if (newTerm > currentTerm) {
             currentTerm = newTerm;
             votedFor = null;
-            this.role = Role.FOLLOWER;
+            transitionTo(Role.FOLLOWER);
         }
     }
     private void handleSetMessage(JSONObject msg) {
@@ -289,7 +289,7 @@ public class Node implements Serializable {
         boolean success = false;
         //if the message is a later term than ours or we have yet to vote
         if (voteTerm > currentTerm || (voteTerm == currentTerm && (votedFor == null/* || votedFor.equals(candidateId)*/))) {
-            /* voteTerm and currentTerm currently checked twice, can possibly be corrected */
+            //TODO voteTerm & currentTerm compared twice
             updateTerm(voteTerm);
             int logTerm = m.getLastLogTerm();
             int logIndex = m.getLastLogIndex();
@@ -361,9 +361,9 @@ public class Node implements Serializable {
                 int leaderCommit = m.getLeaderCommit();
                 if (leaderCommit > commitIndex)
                     commitIndex = Math.min(leaderCommit, log.size() - 1);
+                    //TODO persist commits
             }
-
-
+            restartElectionTimeout();
         }
         //send result
         RPCMessageResponseBuilder response = new RPCMessageResponseBuilder();
@@ -372,25 +372,25 @@ public class Node implements Serializable {
         response.setTerm(currentTerm);
         response.setType(MessageType.APPEND_ENTRIES_RESPONSE);
         response.setSuccess(success);
-        response.setLogIndex(commitIndex);
+        response.setLogIndex(log.size()-1);
         brokerManager.sendToBroker(response.createRPCMessageResponse().serialize(gson));
-        if (success) {
-            restartElectionTimeout();
-        }
     }
 
 
     public void handleAppendEntriesResponse(JSONObject msg) {
+        RPCMessageResponse m = RPCMessageResponse.deserialize(msg.toString().getBytes(Charset.defaultCharset()), gson);
         if (role == Role.LEADER) {
-            RPCMessageResponse m = RPCMessageResponse.deserialize(msg.toString().getBytes(Charset.defaultCharset()), gson);
             if (m.success) { //on success update recorded state for that node
                 matchIndex.put(m.source, m.logIndex);
+                nextIndex.put(m.source, m.logIndex+1);
             } else { //on failure decrement relevant nextIndex for next send
                 Integer next = nextIndex.get(m.source) -1;
                 nextIndex.put(m.source, next);
             }
         }
         //drop message if not leader
+        Logger.info(String.format("%s received extraneous append entries response from %s:%s", this.nodeName,
+                m.source, m.success));
     }
 
     private void startNewElection() {
@@ -458,15 +458,26 @@ public class Node implements Serializable {
     }
 
     public void sendHeartbeats() {
+        int n = commitIndex +1; //TODO add support for skipping an index
+        int acceptedCount = 0;
         for (String peer : brokerManager.getPeers()) {
+            if (matchIndex.get(peer) >= n) {
+                acceptedCount++;
+            }
             AppendEntriesMessage aem = new AppendEntriesMessageBuilder()
                     .setTerm(currentTerm)
                     .setDestination(peer)
                     .setLeaderCommit(commitIndex)
                     .setSource(this.nodeName)
                     .setLeaderId(this.nodeName)
+                    .setEntries(log.subList(nextIndex.get(peer), log.size()))
                     .createAppendEntriesMessage();
             brokerManager.sendToBroker(aem.serialize(gson));
+        }
+
+        if (acceptedCount > brokerManager.getPeers().size()/2 && log.get(n).getTerm() == currentTerm) {
+            commitIndex = n;
+            //TODO persist
         }
     }
 
