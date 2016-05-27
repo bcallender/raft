@@ -95,7 +95,11 @@ public class Node implements Serializable {
                 handleForwardRequestResponse(msg);
                 break;
             case REQUEST_VOTE:
+                handleRequestVote(msg);
+                break;
             case REQUEST_VOTE_RESPONSE:
+                handleRequestVoteResponse(msg);
+                break;
             case GET:
                 handleGetMessage(msg);
                 break;
@@ -113,6 +117,14 @@ public class Node implements Serializable {
         }
     }
 
+    //updates state to newTerm, does nothing if newTerm is stale
+    private void updateTerm(int newTerm) {
+        if (newTerm > currentTerm) {
+            currentTerm = newTerm;
+            votedFor = null;
+            this.role = Role.FOLLOWER;
+        }
+    }
     private void handleSetMessage(JSONObject msg) {
 
         if (this.role == Role.LEADER) { //TODO: log replication
@@ -226,5 +238,36 @@ public class Node implements Serializable {
         }
     }
 
+    private void handleRequestVote(JSONObject msg) {
+        RequestVoteMessage m = RequestVoteMessage.deserialize(msg.toString().getBytes(Charset.defaultCharset()), gson);
+        int voteTerm = m.getTerm();
+        String candidateId = m.getCandidateId();
+        boolean success = false;
+        //if the message is a later term than ours or we have yet to vote
+        if (voteTerm > currentTerm || (voteTerm == currentTerm && (votedFor == null || votedFor.equals(candidateId)))) {
+            /* voteTerm and currentTerm currently checked twice, can possibly be corrected */
+            updateTerm(voteTerm);
+            int logTerm = m.getLastLogTerm();
+            int logIndex = m.getLastLogIndex();
+            int lastIndex = log.size()-1;
+            //if log is empty then the other is vacuously up to date, otherwise compare them for recency
+            if (log.isEmpty() || (log.get(lastIndex).moreRecentThan(logTerm, lastIndex, logIndex))) {
+                votedFor = candidateId;
+               success = true;
+            }
+        }
+        //send result
+        RPCMessageResponseBuilder response = new RPCMessageResponseBuilder();
+        response.setDestination(m.source);
+        response.setSource(nodeName);
+        response.setTerm(voteTerm);
+        response.setType(MessageType.REQUEST_VOTE_RESPONSE);
+        response.setSuccess(success);
+        brokerManager.sendToBroker(response.createRPCMessageResponse().serialize(gson));
+    }
+
+    private void handleRequestVoteResponse(JSONObject msg) {
+
+    }
     private enum Role {FOLLOWER, CANDIDATE, LEADER}
 }
