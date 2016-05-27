@@ -434,6 +434,7 @@ public class Node implements Serializable {
                     Logger.error("Error, invalid state transition to FOLLOWER");
                 this.role = role;
                 heartBeatSend.cancel(true);
+                restartElectionTimeout();
                 break;
 
             case CANDIDATE:
@@ -450,8 +451,17 @@ public class Node implements Serializable {
                 if (this.role != Role.CANDIDATE)
                     Logger.error("Error, invalid state transition to LEADER");
                 this.role = role;
-                restartHeartBeatTimeout();
                 electionTimeout.cancel(true);
+                // resetting the nextIndex and matchIndex map
+                for (Map.Entry<String, Integer> entry : nextIndex.entrySet()) {
+                    nextIndex.put(entry.getKey(), log.size());
+                }
+                for (Map.Entry<String, Integer> entry : matchIndex.entrySet()) {
+                    matchIndex.put(entry.getKey(), 0);
+                }
+
+                restartHeartBeatTimeout();
+
                 break;
         }
     }
