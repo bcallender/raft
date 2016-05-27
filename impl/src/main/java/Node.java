@@ -57,23 +57,12 @@ public class Node implements Serializable {
         this.role = Role.FOLLOWER;
         this.nextIndex = new TreeMap<>();
         this.matchIndex = new TreeMap<>();
-        commandsInFlight = new TreeMap<>();
-        voteResponses = new HashMap<>();
-
+        this.commandsInFlight = new TreeMap<>();
+        this.voteResponses = new HashMap<>();
         this.heartBeatTimeoutValue = ThreadLocalRandom.current().nextInt(150, 300);
-
-        this.heartBeatSend =
-                this.executorService.scheduleAtFixedRate(new HeartbeatSender(this),
-                        HEARTBEAT_INTERVAL,
-                        HEARTBEAT_INTERVAL,
-                        TimeUnit.MILLISECONDS);
-
-
-        Logger.debug(String.format("Election timeout value for %s is %d", nodeName, heartBeatTimeoutValue));
-        heartBeatSend.cancel(true);
-
-
         this.gson = new Gson();
+
+        transitionTo(Role.FOLLOWER);
 
 
     }
@@ -104,7 +93,9 @@ public class Node implements Serializable {
 
 
     private void restartHeartBeatTimeout() {
-        this.heartBeatSend.cancel(true);
+        if (this.heartBeatSend != null) {
+            this.heartBeatSend.cancel(true);
+        }
         this.heartBeatSend =
                 this.executorService.scheduleAtFixedRate(new HeartbeatSender(this),
                         0,
@@ -431,10 +422,9 @@ public class Node implements Serializable {
     public void transitionTo(Role role) {
         switch (role) {
             case FOLLOWER:
-                if (this.role != Role.LEADER)
-                    Logger.error("Error, invalid state transition to FOLLOWER");
                 this.role = role;
-                heartBeatSend.cancel(true);
+                if (heartBeatSend != null)
+                    heartBeatSend.cancel(true);
                 restartElectionTimeout();
                 break;
 
