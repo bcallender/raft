@@ -299,7 +299,7 @@ public class Node implements Serializable {
         brokerManager.sendToBroker(response.createRPCMessageResponse().serialize(gson));
     }
 
-    public void startNewElection() {
+    private void startNewElection() {
         currentTerm++;
         votedFor = nodeName;
         int lastLogIndex = 0;
@@ -332,5 +332,32 @@ public class Node implements Serializable {
         return log.isEmpty() ? null : log.get(log.size() - 1);
     }
 
-    private enum Role {FOLLOWER, CANDIDATE, LEADER}
+    public void transitionTo(Role role) {
+        switch (role) {
+            case FOLLOWER:
+                if (this.role != Role.LEADER)
+                    Logger.error("Error, invalid state transition to FOLLOWER");
+                this.role = role;
+                heartBeatSend.cancel(true);
+                break;
+
+            case CANDIDATE:
+                if (this.role == Role.LEADER) {
+                    Logger.error("Error, invalid state transition to CANDIDATE");
+                    System.exit(0);
+                }
+                this.role = role;
+                startNewElection();
+                break;
+
+            case LEADER:
+                if (this.role != Role.CANDIDATE)
+                    Logger.error("Error, invalid state transition to LEADER");
+                this.role = role;
+                heartBeatSend.cancel(false);
+                break;
+        }
+    }
+
+    public enum Role {FOLLOWER, CANDIDATE, LEADER}
 }
