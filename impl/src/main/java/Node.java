@@ -68,7 +68,7 @@ public class Node implements Serializable {
                         TimeUnit.MILLISECONDS);
 
         this.electionTimeout =
-                this.executorService.scheduleAtFixedRate(new ElectionTimeoutHandler(),
+                this.executorService.scheduleAtFixedRate(new ElectionTimeoutHandler(this),
                         heartBeatTimeoutValue,
                         heartBeatTimeoutValue,
                         TimeUnit.MILLISECONDS);
@@ -269,5 +269,38 @@ public class Node implements Serializable {
     private void handleRequestVoteResponse(JSONObject msg) {
 
     }
+
+    public void startNewElection() {
+        currentTerm++;
+        votedFor = nodeName;
+        int lastLogIndex = 0;
+        int lastLogTerm = 0;
+
+        Entry lastEntry = getLastLog();
+        if (lastEntry != null) {
+            lastLogIndex = lastEntry.index;
+            lastLogTerm = lastEntry.term;
+        }
+
+        RequestVoteMessage rvm;
+        Gson gson;
+
+        for (String peer : brokerManager.getPeers()) {
+            rvm = new RequestVoteMessageBuilder()
+                    .setTerm(currentTerm)
+                    .setCandidateId(nodeName)
+                    .setDestination(peer)
+                    .setLastLogIndex(lastLogIndex)
+                    .setLastLogTerm(lastLogTerm)
+                    .createRequestVoteMessage();
+            gson = new Gson();
+            brokerManager.sendToBroker(rvm.serialize(gson));
+        }
+    }
+
+    private Entry getLastLog() {
+        return log.isEmpty() ? null : log.get(log.size() - 1);
+    }
+
     private enum Role {FOLLOWER, CANDIDATE, LEADER}
 }
