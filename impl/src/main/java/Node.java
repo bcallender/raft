@@ -15,7 +15,7 @@ import java.util.concurrent.*;
 public class Node implements Serializable {
 
     public static final Charset CHARSET = Charset.defaultCharset();
-    private static final int HEARTBEAT_INTERVAL = 5000;
+    private static final int HEARTBEAT_INTERVAL = 1000;
     private final ScheduledExecutorService executorService = Executors.newScheduledThreadPool(1);
     //volatile on all
     int commitIndex;
@@ -73,7 +73,7 @@ public class Node implements Serializable {
                         4000,
                         heartBeatTimeoutValue,
                         TimeUnit.MILLISECONDS);
-        Logger.debug(String.format("Election timeout value for %s is %d", nodeName, heartBeatTimeoutValue));
+        Logger.debug(String.format("Started Election Timeout, Election timeout value for %s is %d", nodeName, heartBeatTimeoutValue));
 
 
     }
@@ -87,7 +87,7 @@ public class Node implements Serializable {
                         heartBeatTimeoutValue,
                         heartBeatTimeoutValue,
                         TimeUnit.MILLISECONDS);
-        Logger.debug(String.format("Election timeout value for %s is %d", nodeName, heartBeatTimeoutValue));
+        Logger.debug(String.format("Restarted Election Timeout, Election timeout value for %s is %d", nodeName, heartBeatTimeoutValue));
 
     }
 
@@ -357,7 +357,7 @@ public class Node implements Serializable {
                 }
                 int leaderCommit = m.getLeaderCommit();
                 if (leaderCommit > commitIndex)
-                    updateCommitIndex(Math.min(leaderCommit, log.size() - 1));
+                    updateCommitIndex(Math.min(leaderCommit, log.isEmpty() ? 0 : log.size() - 1));
                     //TODO persist commits
             }
             restartElectionTimeout();
@@ -369,7 +369,7 @@ public class Node implements Serializable {
         response.setTerm(currentTerm);
         response.setType(MessageType.APPEND_ENTRIES_RESPONSE);
         response.setSuccess(success);
-        response.setLogIndex(log.size()-1);
+        response.setLogIndex(log.isEmpty() ? 0 : log.size() - 1);
         brokerManager.sendToBroker(response.createRPCMessageResponse().serialize(gson));
     }
 
@@ -393,6 +393,7 @@ public class Node implements Serializable {
     }
 
     private void startNewElection() {
+        Logger.debug(String.format("Election timeout occurred, timeout value for %s is %d", nodeName, heartBeatTimeoutValue));
         currentTerm++;
         votedFor = nodeName;
         int lastLogIndex = 0;
