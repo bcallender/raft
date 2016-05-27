@@ -1,5 +1,6 @@
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
+import org.json.JSONException;
 import org.json.JSONObject;
 import org.zeromq.ZMsg;
 
@@ -58,7 +59,7 @@ public class Node implements Serializable {
         this.matchIndex = new TreeMap<>();
         this.commandsInFlight = new TreeMap<>();
         this.voteResponses = new HashMap<>();
-        this.heartBeatTimeoutValue = ThreadLocalRandom.current().nextInt(10000, 15000);
+        this.heartBeatTimeoutValue = ThreadLocalRandom.current().nextInt(15000, 30000);
         this.gson = new Gson();
 
         transitionTo(Role.FOLLOWER);
@@ -97,7 +98,7 @@ public class Node implements Serializable {
         }
         this.heartBeatSend =
                 this.executorService.scheduleAtFixedRate(new HeartbeatSender(this),
-                        0,
+                        HEARTBEAT_INTERVAL,
                         HEARTBEAT_INTERVAL,
                         TimeUnit.MILLISECONDS);
     }
@@ -153,19 +154,28 @@ public class Node implements Serializable {
         }
     }
     private void handleSetMessage(JSONObject msg) {
-        String key = msg.getString("key");
-        String value = msg.getString("value");
+        try {
+            String key = msg.getString("key");
+            String value = msg.getString("value");
+            int id = msg.getInt("id");
 
-        if (this.role == Role.LEADER) { //TODO: log replication
-            commandsInFlight.put(msg.getInt("id"), new ClientCommand(MessageType.SET, key, value));
-            Entry entry = new Entry(false, key, value, currentTerm, log.size(), msg.getInt("id"));
-            log.add(entry);
+            if (this.role == Role.LEADER) { //TODO: log replication
+                commandsInFlight.put(msg.getInt("id"), new ClientCommand(MessageType.SET, key, value));
+                Entry entry = new Entry(false, key, value, currentTerm, log.size(), id);
+                log.add(entry);
 
-        } else {
+            } else {
+                ErrorMessage em = new ErrorMessage(MessageType.SET_RESPONSE, null, msg.getInt("id"), this.nodeName,
+                        String.format("SET commands may only be sent to leader node. I think the current leader is %s", this.leader));
+                brokerManager.sendToBroker(em.serialize(gson));
+            }
+        } catch (JSONException e) {
+            Logger.warning(String.format("Invalid set received at %s", this.nodeName));
             ErrorMessage em = new ErrorMessage(MessageType.SET_RESPONSE, null, msg.getInt("id"), this.nodeName,
-                    String.format("SET commands may only be sent to leader node. I think the current leader is %s", this.leader));
+                    String.format("You sent me invalid JSON: %s", msg.toString()));
             brokerManager.sendToBroker(em.serialize(gson));
         }
+
 
     }
 
@@ -219,46 +229,52 @@ public class Node implements Serializable {
     }
 
     private void handleGetMessage(JSONObject msg) {
-
-        String key = msg.getString("key");
-        int id = msg.getInt("id");
-        ClientCommand command = new ClientCommand(MessageType.GET, key, null);
-        commandsInFlight.put(id, command);
-        //am I the leader?
-        if (this.role == Role.LEADER) {
-            //return the latest value from the store TODO:check if still leader?
-
-
-            if (store.containsKey(key)) {
-
-                Message m = new Message(MessageType.GET_RESPONSE, null, id, this.nodeName);
-                JsonObject getResp = m.serializeToObject(gson);
-                getResp.addProperty("key", key);
-                getResp.addProperty("value", store.get(key));
-                brokerManager.sendToBroker(getResp.toString().getBytes(CHARSET));
-
-            } else {
-                ErrorMessage em = new ErrorMessage(MessageType.GET_RESPONSE, null, id, this.nodeName,
-                        String.format("No such key: %s", key));
-                brokerManager.sendToBroker(em.serialize(gson));
-            }
-
-            commandsInFlight.remove(id);
+        try {
+            String key = msg.getString("key");
+            int id = msg.getInt("id");
+            ClientCommand command = new ClientCommand(MessageType.GET, key, null);
+            commandsInFlight.put(id, command);
+            //am I the leader?
+            if (this.role == Role.LEADER) {
+                //return the latest value from the store TODO:check if still leader?
 
 
-        } else { //i'm not the leader, I need to get the value from the leader
-            //do we know who the leader is?
-            if (leader != null) {
-                Message m = new Message(MessageType.REQUEST_FORWARD, leader, id, this.nodeName);
-                JsonObject fwd = m.serializeToObject(gson);
-                fwd.addProperty("key", key);
-                brokerManager.sendToBroker(fwd.toString().getBytes(CHARSET));
-            } else { //current leader unknown
-                ErrorMessage em = new ErrorMessage(MessageType.GET_RESPONSE, null, id, this.nodeName,
-                        String.format("Cannot identify Leader -- no reference at follower: %s", key));
-                brokerManager.sendToBroker(em.serialize(gson));
+                if (store.containsKey(key)) {
+
+                    Message m = new Message(MessageType.GET_RESPONSE, null, id, this.nodeName);
+                    JsonObject getResp = m.serializeToObject(gson);
+                    getResp.addProperty("key", key);
+                    getResp.addProperty("value", store.get(key));
+                    brokerManager.sendToBroker(getResp.toString().getBytes(CHARSET));
+
+                } else {
+                    ErrorMessage em = new ErrorMessage(MessageType.GET_RESPONSE, null, id, this.nodeName,
+                            String.format("No such key: %s", key));
+                    brokerManager.sendToBroker(em.serialize(gson));
+                }
+
                 commandsInFlight.remove(id);
+
+
+            } else { //i'm not the leader, I need to get the value from the leader
+                //do we know who the leader is?
+                if (leader != null) {
+                    Message m = new Message(MessageType.REQUEST_FORWARD, leader, id, this.nodeName);
+                    JsonObject fwd = m.serializeToObject(gson);
+                    fwd.addProperty("key", key);
+                    brokerManager.sendToBroker(fwd.toString().getBytes(CHARSET));
+                } else { //current leader unknown
+                    ErrorMessage em = new ErrorMessage(MessageType.GET_RESPONSE, null, id, this.nodeName,
+                            String.format("Cannot identify Leader -- no reference at follower: %s", key));
+                    brokerManager.sendToBroker(em.serialize(gson));
+                    commandsInFlight.remove(id);
+                }
             }
+        } catch (JSONException je) {
+            Logger.warning(String.format("Invalid GET received at %s", this.nodeName));
+            ErrorMessage em = new ErrorMessage(MessageType.GET_RESPONSE, null, msg.getInt("id"), this.nodeName,
+                    String.format("You sent me invalid JSON: %s", msg.toString()));
+            brokerManager.sendToBroker(em.serialize(gson));
         }
     }
 
@@ -334,7 +350,9 @@ public class Node implements Serializable {
                 success = true;
                 if (!m.getEntries().isEmpty()) {
                     List<Entry> entries = m.getEntries();
-                    log = log.subList(0, index + 1);
+                    if (!log.isEmpty()) {
+                        log = log.subList(0, index + 1);
+                    }
                     log.addAll(entries);
                 }
                 int leaderCommit = m.getLeaderCommit();
@@ -366,10 +384,12 @@ public class Node implements Serializable {
                 Integer next = nextIndex.get(m.source) -1;
                 nextIndex.put(m.source, next);
             }
+        } else {
+            //drop message if not leader
+            Logger.info(String.format("%s received extraneous append entries response from %s:%s", this.nodeName,
+                    m.source, m.success));
         }
-        //drop message if not leader
-        Logger.info(String.format("%s received extraneous append entries response from %s:%s", this.nodeName,
-                m.source, m.success));
+
     }
 
     private void startNewElection() {
@@ -486,6 +506,7 @@ public class Node implements Serializable {
                                 entry.getValue().getKey(), entry.getValue().getValue()));
                 brokerManager.sendToBroker(em.serialize(gson));
             }
+            commandsInFlight.remove(entry.getKey());
 
         }
     }
