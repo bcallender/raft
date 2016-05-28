@@ -15,11 +15,10 @@ import java.util.concurrent.*;
 public class Node implements Serializable {
 
     public static final Charset CHARSET = Charset.defaultCharset();
-    private static final int HEARTBEAT_INTERVAL = 1000;
+    private static final int HEARTBEAT_INTERVAL = 100;
     private final ScheduledExecutorService executorService = Executors.newScheduledThreadPool(1);
     //volatile on all
     int commitIndex;
-    int lastApplied;
     Role role;
     String leader;
     //volatile on master
@@ -53,13 +52,12 @@ public class Node implements Serializable {
         this.votedFor = null;
         this.log = new ArrayList<>();
         this.commitIndex = 0;
-        this.lastApplied = 0;
         this.role = Role.FOLLOWER;
         this.nextIndex = new TreeMap<>();
         this.matchIndex = new TreeMap<>();
         this.commandsInFlight = new TreeMap<>();
         this.voteResponses = new HashMap<>();
-        this.heartBeatTimeoutValue = ThreadLocalRandom.current().nextInt(15000, 30000);
+        this.heartBeatTimeoutValue = ThreadLocalRandom.current().nextInt(1000, 3000);
         this.gson = new Gson();
 
         transitionTo(Role.FOLLOWER);
@@ -478,14 +476,15 @@ public class Node implements Serializable {
             if (matchIndex.get(peer) >= n) {
                 acceptedCount++;
             }
-            AppendEntriesMessage aem = new AppendEntriesMessageBuilder()
+            AppendEntriesMessageBuilder aemb = new AppendEntriesMessageBuilder()
                     .setTerm(currentTerm)
                     .setDestination(peer)
                     .setLeaderCommit(commitIndex)
                     .setSource(this.nodeName)
-                    .setLeaderId(this.nodeName)
-                    .setEntries(log.subList(nextIndex.get(peer), log.size()))
-                    .createAppendEntriesMessage();
+                    .setLeaderId(this.nodeName);
+            if (!log.isEmpty())
+                aemb.setEntries(log.subList(nextIndex.get(peer), log.size()));
+            AppendEntriesMessage aem = aemb.createAppendEntriesMessage();
             brokerManager.sendToBroker(aem.serialize(gson));
         }
 

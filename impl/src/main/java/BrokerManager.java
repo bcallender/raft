@@ -56,11 +56,11 @@ public class BrokerManager {
     }
 
     public void sendToBroker(byte[] message) {
-        //reqSockLock.lock();
+        reqSockLock.lock();
         byte[] nullFrame = new byte[0]; //need to send a null frame with DEALER to emulate REQ envelope
         this.reqSock.send(nullFrame, ZMQ.SNDMORE);
         this.reqSock.send(message, ZMQ.DONTWAIT);
-        //reqSockLock.unlock();
+        reqSockLock.unlock();
 
         Logger.trace(String.format("Sent Message %s", new String(message, Charset.defaultCharset())));
 
