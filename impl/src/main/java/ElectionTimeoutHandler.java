@@ -9,6 +9,7 @@ public class ElectionTimeoutHandler implements Runnable {
         this.parent = parent;
     }
 
+
     @Override
     public void run() {
         parent.transitionTo(Node.Role.CANDIDATE);

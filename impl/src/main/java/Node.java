@@ -15,7 +15,7 @@ import java.util.concurrent.*;
 public class Node implements Serializable {
 
     public static final Charset CHARSET = Charset.defaultCharset();
-    private static final int HEARTBEAT_INTERVAL = 100;
+    private static final int HEARTBEAT_INTERVAL = 1500;
     private final ScheduledExecutorService executorService = Executors.newScheduledThreadPool(1);
     //volatile on all
     int commitIndex;
@@ -55,9 +55,9 @@ public class Node implements Serializable {
         this.role = Role.FOLLOWER;
         this.nextIndex = new TreeMap<>();
         this.matchIndex = new TreeMap<>();
-        this.commandsInFlight = new TreeMap<>();
+        this.commandsInFlight = new ConcurrentHashMap<>();
         this.voteResponses = new HashMap<>();
-        this.heartBeatTimeoutValue = ThreadLocalRandom.current().nextInt(1000, 3000);
+        this.heartBeatTimeoutValue = ThreadLocalRandom.current().nextInt(10000, 30000);
         this.gson = new Gson();
 
         transitionTo(Role.FOLLOWER);
@@ -355,7 +355,7 @@ public class Node implements Serializable {
                 }
                 int leaderCommit = m.getLeaderCommit();
                 if (leaderCommit > commitIndex)
-                    updateCommitIndex(Math.min(leaderCommit, log.isEmpty() ? 0 : log.size() - 1));
+                    updateCommitIndex(Math.min(leaderCommit, log.isEmpty() ? -1 : log.size() - 1));
                     //TODO persist commits
             }
             restartElectionTimeout();
@@ -367,7 +367,7 @@ public class Node implements Serializable {
         response.setTerm(currentTerm);
         response.setType(MessageType.APPEND_ENTRIES_RESPONSE);
         response.setSuccess(success);
-        response.setLogIndex(log.isEmpty() ? 0 : log.size() - 1);
+        response.setLogIndex(log.isEmpty() ? -1 : log.size() - 1);
         brokerManager.sendToBroker(response.createRPCMessageResponse().serialize(gson));
     }
 
@@ -474,6 +474,7 @@ public class Node implements Serializable {
         int acceptedCount = 0;
         for (String peer : brokerManager.getPeers()) {
             if (matchIndex.get(peer) >= n) {
+                Logger.warning("GOT HERE?");
                 acceptedCount++;
             }
             AppendEntriesMessageBuilder aemb = new AppendEntriesMessageBuilder()
@@ -487,8 +488,8 @@ public class Node implements Serializable {
             AppendEntriesMessage aem = aemb.createAppendEntriesMessage();
             brokerManager.sendToBroker(aem.serialize(gson));
         }
-
         if (acceptedCount > brokerManager.getPeers().size()/2 && log.get(n).getTerm() == currentTerm) {
+            Logger.warning("commit index HERE?");
             updateCommitIndex(n);
             //TODO persist
         }
