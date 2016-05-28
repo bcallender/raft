@@ -60,9 +60,10 @@ public class Node implements Serializable {
         this.heartBeatTimeoutValue = ThreadLocalRandom.current().nextInt(10000, 30000);
         this.gson = new Gson();
 
+        Entry e = new Entry(true, null, null, 0, 0, 0); // no op
+        this.log.add(e);
+
         transitionTo(Role.FOLLOWER);
-
-
     }
 
     private void startElectionTimeout() {
@@ -151,6 +152,7 @@ public class Node implements Serializable {
             transitionTo(Role.FOLLOWER);
         }
     }
+
     private void handleSetMessage(JSONObject msg) {
         try {
             String key = msg.getString("key");
@@ -312,17 +314,18 @@ public class Node implements Serializable {
             this.voteResponses.put(response.source, response.success);
             int numYeas = 0;
             int numNays = 0;
-            if (voteResponses.size() > (brokerManager.getPeers().size() + 1) / 2) { //we have enough votes to check for quorum
+            int quorum = (brokerManager.getPeers().size() + 1) / 2;
+            if (voteResponses.size() > quorum) { //we have enough votes to check for quorum
                 for (Boolean vote : voteResponses.values()) {
                     if (vote)
                         numYeas++;
                     else
                         numNays++;
                 }
-                if (numYeas > numNays) { //success
+                if (numYeas > quorum) { //success //
                     Logger.info(String.format("Node %s received a quorum of votes. It is now the leader", this.nodeName));
                     transitionTo(Role.LEADER);
-                } else { //failed quorum, restart election
+                } else if (numNays > quorum) { //failed quorum, restart election
                     Logger.info(String.format("Node %s did not receive a quorum of votes. Split Vote..", this.nodeName));
                     transitionTo(Role.CANDIDATE);
                 }
@@ -355,7 +358,7 @@ public class Node implements Serializable {
                 }
                 int leaderCommit = m.getLeaderCommit();
                 if (leaderCommit > commitIndex)
-                    updateCommitIndex(Math.min(leaderCommit, log.isEmpty() ? -1 : log.size() - 1));
+                    updateCommitIndex(Math.min(leaderCommit, log.size() - 1));
                     //TODO persist commits
             }
             restartElectionTimeout();
@@ -367,7 +370,7 @@ public class Node implements Serializable {
         response.setTerm(currentTerm);
         response.setType(MessageType.APPEND_ENTRIES_RESPONSE);
         response.setSuccess(success);
-        response.setLogIndex(log.isEmpty() ? -1 : log.size() - 1);
+        response.setLogIndex(log.size() - 1);
         brokerManager.sendToBroker(response.createRPCMessageResponse().serialize(gson));
     }
 
@@ -471,7 +474,7 @@ public class Node implements Serializable {
             if (log.get(n).getTerm() == currentTerm)
                     break;
         }
-        int acceptedCount = 0;
+        int acceptedCount = 1;
         for (String peer : brokerManager.getPeers()) {
             if (matchIndex.get(peer) >= n) {
                 Logger.warning("GOT HERE?");
@@ -488,7 +491,7 @@ public class Node implements Serializable {
             AppendEntriesMessage aem = aemb.createAppendEntriesMessage();
             brokerManager.sendToBroker(aem.serialize(gson));
         }
-        if (acceptedCount > brokerManager.getPeers().size()/2 && log.get(n).getTerm() == currentTerm) {
+        if (acceptedCount > (brokerManager.getPeers().size() + 1) / 2 && log.get(n).getTerm() == currentTerm) {
             Logger.warning("commit index HERE?");
             updateCommitIndex(n);
             //TODO persist
