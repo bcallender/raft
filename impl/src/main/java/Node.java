@@ -524,14 +524,19 @@ public class Node implements Serializable {
 
     private void updateCommitIndex(int newIndex) {
         //persist changes
+        Logger.warning(String.format("Got inside CommitIndex %s", nodeName));
         List<Integer> persistedRequests = new ArrayList<>();
         for (Entry e : log.subList(commitIndex, newIndex + 1)) {
             applyEntryToStateMachine(e);
             persistedRequests.add(e.requestId);
         }
+
+        Logger.warning(String.format("Applied to state machine %s", nodeName));
         //TODO: actually persist to disk
 
         if (this.role == Role.LEADER) {
+            Logger.warning(String.format("Leader %s committed", nodeName));
+            // TODO: crashes between the previous warning and the next warning
             //send set responses if you're the leader
             for (Integer requestId : persistedRequests) {
                 Message m = new Message(MessageType.SET_RESPONSE, null, requestId, this.nodeName);
@@ -541,6 +546,7 @@ public class Node implements Serializable {
                 brokerManager.sendToBroker(msgToSend.toString().getBytes(CHARSET));
                 commandsInFlight.remove(requestId);
             }
+            Logger.warning(String.format("Sent set responses as leader %s", nodeName));
         }
     }
 
