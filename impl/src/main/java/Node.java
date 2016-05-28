@@ -15,7 +15,7 @@ import java.util.concurrent.*;
 public class Node implements Serializable {
 
     public static final Charset CHARSET = Charset.defaultCharset();
-    private static final int HEARTBEAT_INTERVAL = 1500;
+    private static final int HEARTBEAT_INTERVAL = 2500;
     private final ScheduledExecutorService executorService = Executors.newScheduledThreadPool(1);
     //volatile on all
     int commitIndex;
@@ -57,7 +57,7 @@ public class Node implements Serializable {
         this.matchIndex = new TreeMap<>();
         this.commandsInFlight = new ConcurrentHashMap<>();
         this.voteResponses = new HashMap<>();
-        this.heartBeatTimeoutValue = ThreadLocalRandom.current().nextInt(10000, 30000);
+        this.heartBeatTimeoutValue = ThreadLocalRandom.current().nextInt(5000, 10000);
         this.gson = new Gson();
 
         Entry e = new Entry(true, null, null, 0, 0, 0); // no op
@@ -477,7 +477,6 @@ public class Node implements Serializable {
         int acceptedCount = 1;
         for (String peer : brokerManager.getPeers()) {
             if (matchIndex.get(peer) >= n) {
-                Logger.warning("GOT HERE?");
                 acceptedCount++;
             }
             AppendEntriesMessageBuilder aemb = new AppendEntriesMessageBuilder()
@@ -492,7 +491,6 @@ public class Node implements Serializable {
             brokerManager.sendToBroker(aem.serialize(gson));
         }
         if (acceptedCount > (brokerManager.getPeers().size() + 1) / 2 && log.get(n).getTerm() == currentTerm) {
-            Logger.warning("commit index HERE?");
             updateCommitIndex(n);
             //TODO persist
         }
@@ -524,7 +522,6 @@ public class Node implements Serializable {
 
     private void updateCommitIndex(int newIndex) {
         //persist changes
-        Logger.warning(String.format("Got inside CommitIndex %s", nodeName));
         List<Integer> persistedRequests = new ArrayList<>();
         for (Entry e : log.subList(commitIndex, newIndex + 1)) {
             applyEntryToStateMachine(e);
@@ -539,12 +536,16 @@ public class Node implements Serializable {
             // TODO: crashes between the previous warning and the next warning
             //send set responses if you're the leader
             for (Integer requestId : persistedRequests) {
-                Message m = new Message(MessageType.SET_RESPONSE, null, requestId, this.nodeName);
-                JsonObject msgToSend = m.serializeToObject(gson);
-                msgToSend.addProperty("key", commandsInFlight.get(requestId).getKey());
-                msgToSend.addProperty("value", commandsInFlight.get(requestId).getValue());
-                brokerManager.sendToBroker(msgToSend.toString().getBytes(CHARSET));
-                commandsInFlight.remove(requestId);
+                if (commandsInFlight.containsKey(requestId)) {
+                    ClientCommand clientCommand = commandsInFlight.get(requestId);
+                    Message m = new Message(MessageType.SET_RESPONSE, null, requestId, this.nodeName);
+                    JsonObject msgToSend = m.serializeToObject(gson);
+                    msgToSend.addProperty("key", clientCommand.getKey());
+                    msgToSend.addProperty("value", clientCommand.getValue());
+                    brokerManager.sendToBroker(msgToSend.toString().getBytes(CHARSET));
+                    commandsInFlight.remove(requestId);
+                }
+
             }
             Logger.warning(String.format("Sent set responses as leader %s", nodeName));
         }
