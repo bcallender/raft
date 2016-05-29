@@ -2,3 +2,7 @@ start -n node-1
 start -n node-2
 start -n node-3
 start -n node-4
+start -n node-5
+start -n node-6
+start -n node-7
+start -n node-8

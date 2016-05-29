@@ -57,7 +57,7 @@ public class Node implements Serializable {
         this.matchIndex = new TreeMap<>();
         this.commandsInFlight = new ConcurrentHashMap<>();
         this.voteResponses = new HashMap<>();
-        this.heartBeatTimeoutValue = ThreadLocalRandom.current().nextInt(500, 750);
+        this.heartBeatTimeoutValue = ThreadLocalRandom.current().nextInt(300, 750);
         this.gson = new Gson();
 
         Entry e = new Entry(true, null, null, 0, 0, 0); // no op
@@ -69,7 +69,7 @@ public class Node implements Serializable {
     private void startElectionTimeout() {
         this.electionTimeout =
                 this.executorService.scheduleAtFixedRate(new ElectionTimeoutHandler(this),
-                        4000,
+                        heartBeatTimeoutValue,
                         heartBeatTimeoutValue,
                         TimeUnit.MILLISECONDS);
         Logger.debug(String.format("Started Election Timeout, Election timeout value for %s is %d", nodeName, heartBeatTimeoutValue));
@@ -109,28 +109,36 @@ public class Node implements Serializable {
 
         switch (type) {
             case APPEND_ENTRIES:
-                handleAppendEntries(msg);
+                if (connected)
+                    handleAppendEntries(msg);
                 break;
             case APPEND_ENTRIES_RESPONSE:
-                handleAppendEntriesResponse(msg);
+                if (connected)
+                    handleAppendEntriesResponse(msg);
                 break;
             case REQUEST_FORWARD:
-                handleForwardRequest(msg);
+                if (connected)
+                    handleForwardRequest(msg);
                 break;
             case REQUEST_FORWARD_RESPONSE:
-                handleForwardRequestResponse(msg);
+                if (connected)
+                    handleForwardRequestResponse(msg);
                 break;
             case REQUEST_VOTE:
-                handleRequestVote(msg);
+                if (connected)
+                    handleRequestVote(msg);
                 break;
             case REQUEST_VOTE_RESPONSE:
-                handleRequestVoteResponse(msg);
+                if (connected)
+                    handleRequestVoteResponse(msg);
                 break;
             case GET:
-                handleGetMessage(msg);
+                if (connected)
+                    handleGetMessage(msg);
                 break;
             case SET:
-                handleSetMessage(msg);
+                if (connected)
+                    handleSetMessage(msg);
                 break;
             case HELLO:
                 if (!connected) {
