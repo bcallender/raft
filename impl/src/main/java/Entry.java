@@ -32,7 +32,7 @@ public class Entry implements Serializable {
         return e.index == this.index && e.term != this.term;
     }
     public boolean moreRecentThan(int otherTerm, int otherIdx) {
-        return (otherTerm < term) || (otherTerm == term && index >= otherIdx);
+        return (term > otherTerm) || (otherTerm == term && index > otherIdx);
     }
 
 }

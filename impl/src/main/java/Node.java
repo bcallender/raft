@@ -266,14 +266,14 @@ public class Node implements Serializable {
         String candidateId = m.getCandidateId();
         boolean success = false;
         //if the message is a later term than ours or we have yet to vote
-        if (voteTerm > currentTerm || (voteTerm == currentTerm && (votedFor == null/* || votedFor.equals(candidateId)*/))) {
+        if (voteTerm > currentTerm || (voteTerm == currentTerm && (votedFor == null || votedFor.equals(candidateId)))) {
             //TODO voteTerm & currentTerm compared twice
             updateTerm(voteTerm);
             int logTerm = m.getLastLogTerm();
             int logIndex = m.getLastLogIndex();
             Entry lastEntry = getLastEntry();
             //if log is empty then the other is vacuously up to date, otherwise compare them for recency
-            if (lastEntry == null || (lastEntry.moreRecentThan(logTerm, logIndex))) {
+            if (lastEntry == null || (!lastEntry.moreRecentThan(logTerm, logIndex))) {
                 votedFor = candidateId;
                 success = true;
             }
@@ -308,8 +308,8 @@ public class Node implements Serializable {
                     Logger.info(String.format("Node %s received a quorum of votes. It is now the leader", this.nodeName));
                     transitionTo(Role.LEADER);
                 } else if (numNays > quorum) { //failed quorum, restart election
-                    Logger.info(String.format("Node %s did not receive a quorum of votes. Split Vote..", this.nodeName));
-                    transitionTo(Role.CANDIDATE);
+                    Logger.info(String.format("Node %s did not receive a quorum of votes. Split Vote...", this.nodeName));
+                    //transitionTo(Role.CANDIDATE);
                 }
             }
         } else {
@@ -365,6 +365,9 @@ public class Node implements Serializable {
                 nextIndex.put(m.source, m.logIndex+1);
             } else { //on failure decrement relevant nextIndex for next send
                 Integer next = nextIndex.get(m.source) -1;
+                if (next < 0) {
+                    Logger.error(String.format("%s has a negative nextIndex", m.source));
+                }
                 nextIndex.put(m.source, next);
             }
         } else {
