@@ -25,10 +25,10 @@ public enum MessageType {
     REQUEST_VOTE_RESPONSE("requestVoteResponse"),
     @SerializedName("appendEntriesResponse")
     APPEND_ENTRIES_RESPONSE("appendEntriesResponse"),
-    @SerializedName("requestForward")
-    REQUEST_FORWARD("requestForward"),
-    @SerializedName("requestForwardResponse")
-    REQUEST_FORWARD_RESPONSE("requestForwardResponse");
+    @SerializedName("setRequestForward")
+    SET_REQUEST_FORWARD("setRequestForward"),
+    @SerializedName("getRequestForward")
+    GET_REQUEST_FORWARD("getRequestForward");
 
 
 

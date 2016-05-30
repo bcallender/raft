@@ -2,8 +2,12 @@ import com.google.gson.Gson;
 import com.google.gson.JsonObject;
 import org.json.JSONException;
 import org.json.JSONObject;
+import org.mapdb.DB;
+import org.mapdb.DBMaker;
 import org.zeromq.ZMsg;
 
+import java.io.File;
+import java.io.IOException;
 import java.io.Serializable;
 import java.nio.charset.Charset;
 import java.util.*;
@@ -34,6 +38,7 @@ public class Node implements Serializable {
     private Map<String, String> store;
     private String nodeName;
     private boolean connected;
+    private DB db;
 
 
     //persistent
@@ -45,7 +50,6 @@ public class Node implements Serializable {
 
     public Node(String nodeName, BrokerManager brokerManager) {
         this.nodeName = nodeName;
-        this.store = new HashMap<>();
         this.brokerManager = brokerManager;
         this.connected = false;
         this.currentTerm = 0;
@@ -57,8 +61,25 @@ public class Node implements Serializable {
         this.matchIndex = new TreeMap<>();
         this.commandsInFlight = new ConcurrentHashMap<>();
         this.voteResponses = new HashMap<>();
-        this.heartBeatTimeoutValue = ThreadLocalRandom.current().nextInt(300, 750);
+        this.heartBeatTimeoutValue = ThreadLocalRandom.current().nextInt(300, 600);
         this.gson = new Gson();
+
+        //file backed db.
+        try {
+            File dbFile = File.createTempFile(this.nodeName, ".tmpDB");
+            this.db = DBMaker.fileDB(dbFile)
+                    .fileMmapEnableIfSupported()
+                    .closeOnJvmShutdown()
+                    .make();
+            //this.store = db.treeMap(this.nodeName);
+            this.store = new HashMap<>();
+        } catch (IOException e) {
+            Logger.error("IO error creating db file");
+            Logger.error(e.getMessage());
+            System.exit(-1);
+        }
+
+
 
         Entry e = new Entry(true, null, null, 0, 0, 0); // no op
         this.log.add(e);
@@ -116,14 +137,6 @@ public class Node implements Serializable {
                 if (connected)
                     handleAppendEntriesResponse(msg);
                 break;
-            case REQUEST_FORWARD:
-                if (connected)
-                    handleForwardRequest(msg);
-                break;
-            case REQUEST_FORWARD_RESPONSE:
-                if (connected)
-                    handleForwardRequestResponse(msg);
-                break;
             case REQUEST_VOTE:
                 if (connected)
                     handleRequestVote(msg);
@@ -132,10 +145,12 @@ public class Node implements Serializable {
                 if (connected)
                     handleRequestVoteResponse(msg);
                 break;
+            case GET_REQUEST_FORWARD: //fallthrough to GET
             case GET:
                 if (connected)
                     handleGetMessage(msg);
                 break;
+            case SET_REQUEST_FORWARD: //fallthrough to SET
             case SET:
                 if (connected)
                     handleSetMessage(msg);
@@ -173,9 +188,18 @@ public class Node implements Serializable {
                 log.add(entry);
 
             } else {
-                ErrorMessage em = new ErrorMessage(MessageType.SET_RESPONSE, null, msg.getInt("id"), this.nodeName,
-                        String.format("SET commands may only be sent to leader node. I think the current leader is %s", this.leader));
-                brokerManager.sendToBroker(em.serialize(gson));
+                if (leader != null) {
+                    Message m = new Message(MessageType.SET_REQUEST_FORWARD, leader, id, this.nodeName);
+                    JsonObject fwd = m.serializeToObject(gson);
+                    fwd.addProperty("key", key);
+                    fwd.addProperty("value", value);
+                    brokerManager.sendToBroker(fwd.toString().getBytes(CHARSET));
+                } else { //current leader unknown
+                    ErrorMessage em = new ErrorMessage(MessageType.SET_RESPONSE, null, id, this.nodeName,
+                            String.format("Cannot identify Leader -- no reference at follower: %s", this.nodeName));
+                    brokerManager.sendToBroker(em.serialize(gson));
+                    commandsInFlight.remove(id);
+                }
             }
         } catch (JSONException e) {
             Logger.warning(String.format("Invalid set received at %s", this.nodeName));
@@ -187,66 +211,16 @@ public class Node implements Serializable {
 
     }
 
-    private void handleForwardRequestResponse(JSONObject msg) {
-
-        int id = msg.getInt("id");
-        //is this reply stale? (my inFlight table has been flushed since i sent this)
-        if (commandsInFlight.containsKey(id)) {
-            //is this an error?
-            commandsInFlight.remove(id);
-            if (msg.has("error")) {
-                ErrorMessage response = ErrorMessage.deserialize(msg.toString(), gson);
-                ErrorMessage reply = new ErrorMessage(MessageType.GET_RESPONSE, null, id, this.nodeName, response.getError());
-                brokerManager.sendToBroker(reply.serialize(gson));
-            } else { //message has the data we need!
-                String key = msg.getString("key");
-                Message m = new Message(MessageType.GET_RESPONSE, null, id, this.nodeName);
-                JsonObject toSend = m.serializeToObject(gson);
-                toSend.addProperty("key", key);
-                toSend.addProperty("value", msg.getString("value"));
-                brokerManager.sendToBroker(toSend.toString().getBytes(CHARSET));
-            }
-        }
-
-        //drop message if stale
-    }
-
-    private void handleForwardRequest(JSONObject msg) {
-        String key = msg.getString("key");
-        int id = msg.getInt("id");
-        String source = msg.getString("source");
-        //am i the leader?
-        if (this.role == Role.LEADER) {
-            if (store.containsKey(key)) {
-                Message m = new Message(MessageType.REQUEST_FORWARD_RESPONSE, source, id, this.nodeName);
-                JsonObject reply = m.serializeToObject(gson);
-                reply.addProperty("key", key);
-                reply.addProperty("value", store.get(key));
-                brokerManager.sendToBroker(reply.toString().getBytes(CHARSET));
-            } else {
-                ErrorMessage em = new ErrorMessage(MessageType.REQUEST_FORWARD_RESPONSE, source, id, this.nodeName,
-                        String.format("No such key: %s", key));
-                brokerManager.sendToBroker(em.serialize(gson));
-            }
-        } else {
-            ErrorMessage em = new ErrorMessage(MessageType.REQUEST_FORWARD_RESPONSE, source, id, this.nodeName,
-                    "Cannot identify leader -- no referenced at follower perceived leader");
-            brokerManager.sendToBroker(em.serialize(gson));
-        }
-
-    }
-
     private void handleGetMessage(JSONObject msg) {
         try {
             String key = msg.getString("key");
             int id = msg.getInt("id");
-            ClientCommand command = new ClientCommand(MessageType.GET, key, null);
-            commandsInFlight.put(id, command);
+
             //am I the leader?
             if (this.role == Role.LEADER) {
+                ClientCommand command = new ClientCommand(MessageType.GET, key, null);
+                commandsInFlight.put(id, command);
                 //return the latest value from the store TODO:check if still leader?
-
-
                 if (store.containsKey(key)) {
 
                     Message m = new Message(MessageType.GET_RESPONSE, null, id, this.nodeName);
@@ -267,7 +241,7 @@ public class Node implements Serializable {
             } else { //i'm not the leader, I need to get the value from the leader
                 //do we know who the leader is?
                 if (leader != null) {
-                    Message m = new Message(MessageType.REQUEST_FORWARD, leader, id, this.nodeName);
+                    Message m = new Message(MessageType.GET_REQUEST_FORWARD, leader, id, this.nodeName);
                     JsonObject fwd = m.serializeToObject(gson);
                     fwd.addProperty("key", key);
                     brokerManager.sendToBroker(fwd.toString().getBytes(CHARSET));
@@ -508,7 +482,6 @@ public class Node implements Serializable {
         }
         if (acceptedCount > (brokerManager.getPeers().size() + 1) / 2 && log.get(n).getTerm() == currentTerm && n > commitIndex) {
             updateCommitIndex(n);
-            //TODO persist
         }
     }
 
@@ -534,6 +507,7 @@ public class Node implements Serializable {
             store.put(entry.key, entry.value);
             entry.applied = true;
         }
+        //db.commit();
     }
 
     private void updateCommitIndex(int newIndex) {
@@ -544,11 +518,11 @@ public class Node implements Serializable {
             persistedRequests.add(e.requestId);
         }
 
-        Logger.warning(String.format("Applied to state machine %s", nodeName));
+        Logger.info(String.format("Applied to state machine %s", nodeName));
         //TODO: actually persist to disk
 
         if (this.role == Role.LEADER) {
-            Logger.warning(String.format("Leader %s committed", nodeName));
+            Logger.info(String.format("Leader %s committed", nodeName));
             // TODO: crashes between the previous warning and the next warning
             //send set responses if you're the leader
             for (Integer requestId : persistedRequests) {
@@ -564,7 +538,7 @@ public class Node implements Serializable {
 
             }
             this.commitIndex = newIndex;
-            Logger.warning(String.format("Sent set responses as leader %s", nodeName));
+            Logger.info(String.format("Sent set responses as leader %s", nodeName));
         }
     }
 

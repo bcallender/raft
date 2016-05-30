@@ -11,6 +11,11 @@ public class HeartbeatSender implements Runnable {
 
     @Override
     public void run() {
-        parent.sendHeartbeats();
+        try {
+            parent.sendHeartbeats();
+        } catch (Exception e) { //catch any exception that happens in the thread so we can see them on the logger.
+            Logger.error(e.toString());
+        }
+
     }
 }

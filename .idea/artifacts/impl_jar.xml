@@ -3,10 +3,11 @@
     <output-path>$PROJECT_DIR$/impl/out/artifacts/impl_jar</output-path>
     <root id="archive" name="impl.jar">
       <element id="module-output" name="impl" />
-      <element id="extracted-dir" path="$MAVEN_REPOSITORY$/org/zeromq/jeromq/0.3.0/jeromq-0.3.0.jar" path-in-jar="/" />
-      <element id="extracted-dir" path="$MAVEN_REPOSITORY$/com/google/code/gson/gson/2.6.2/gson-2.6.2.jar" path-in-jar="/" />
+      <element id="extracted-dir" path="$MAVEN_REPOSITORY$/org/mapdb/mapdb/2.0-beta3/mapdb-2.0-beta3.jar" path-in-jar="/" />
       <element id="extracted-dir" path="$MAVEN_REPOSITORY$/org/json/json/20160212/json-20160212.jar" path-in-jar="/" />
       <element id="extracted-dir" path="$MAVEN_REPOSITORY$/com/beust/jcommander/1.7/jcommander-1.7.jar" path-in-jar="/" />
+      <element id="extracted-dir" path="$MAVEN_REPOSITORY$/com/google/code/gson/gson/2.6.2/gson-2.6.2.jar" path-in-jar="/" />
+      <element id="extracted-dir" path="$MAVEN_REPOSITORY$/org/zeromq/jeromq/0.3.0/jeromq-0.3.0.jar" path-in-jar="/" />
     </root>
   </artifact>
 </component>
