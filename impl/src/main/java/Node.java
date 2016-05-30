@@ -333,22 +333,23 @@ public class Node implements Serializable {
         if (currentTerm <= m.getTerm()) { //TODO: correct?
             this.leader = m.source;
             updateTerm(m.getTerm());
-            int matchedIndex = m.getPrevLogIndex();
-            if (matchedIndex >= log.size()) {
-                Logger.error(String.format("%s, leader thinks I match at %d, log size is %d", nodeName, matchedIndex, log.size()));
-            }
-            Entry myEntry = log.get(matchedIndex);
-            if (myEntry.getTerm() == m.getPrevLogTerm()) {
-                success = true;
-                List<Entry> entries = m.getEntries();
-                if (!log.isEmpty()) {
-                    log = log.subList(0, matchedIndex + 1);
-                }
-                log.addAll(entries);
+            int nextIndex = m.getPrevLogIndex();
+            if (nextIndex < log.size()) {
+                //Logger.info(String.format("%s, leader thinks next is %d, log size is %d", nodeName, nextIndex, log.size()));
 
-                int leaderCommit = m.getLeaderCommit();
-                if (leaderCommit > commitIndex) {
-                    updateCommitIndex(Math.min(leaderCommit, log.size() - 1));
+                Entry myEntry = log.get(nextIndex);
+                if (myEntry.getTerm() == m.getPrevLogTerm()) {
+                    success = true;
+                    List<Entry> entries = m.getEntries();
+                    if (!log.isEmpty()) {
+                        log = log.subList(0, nextIndex + 1);
+                    }
+                    log.addAll(entries);
+
+                    int leaderCommit = m.getLeaderCommit();
+                    if (leaderCommit > commitIndex) {
+                        updateCommitIndex(Math.min(leaderCommit, log.size() - 1));
+                    }
                 }
             }
             restartElectionTimeout();
@@ -412,16 +413,10 @@ public class Node implements Serializable {
                     .setLeaderCommit(commitIndex)
                     .setSource(this.nodeName)
                     .setEntries(newEntries)
-                    .setLeaderId(this.nodeName)
-                    .setPrevLogIndex(nextIndex.get(peer) - 1)
-                    .setPrevLogTerm(log.get(nextIndex.get(peer) - 1).term);
-            //if (!newEntries.isEmpty()) {
-                //TODO: so ugly
-                //if (newEntries.get(0).index < 1)
-                   // Logger.error(String.format("%s has a negative prevIndex(%d) for %s", nodeName, newEntries.get(0).index - 1, peer));
-            //aemb.setPrevLogIndex(nextIndex.get(peer)-1);
-            //aemb.setPrevLogTerm(log.get(nextIndex.get(peer)-1).term);
-            //}
+                    .setLeaderId(this.nodeName);
+
+            aemb.setPrevLogIndex(nextIndex.get(peer)-1);
+            aemb.setPrevLogTerm(log.get(nextIndex.get(peer)-1).term);
 
             AppendEntriesMessage aem = aemb.createAppendEntriesMessage();
             brokerManager.sendToBroker(aem.serialize(gson));
@@ -498,7 +493,6 @@ public class Node implements Serializable {
                 this.role = role;
                 electionTimeout.cancel(true);
                 // resetting the nextIndex and matchIndex map
-
                 for (String peer : brokerManager.getPeers()) {
                     matchIndex.put(peer, 0);
                     nextIndex.put(peer, log.size());
