@@ -19,7 +19,7 @@ import java.util.concurrent.*;
 public class Node implements Serializable {
 
     public static final Charset CHARSET = Charset.defaultCharset();
-    private static final int HEARTBEAT_INTERVAL = 500;
+    private static final int HEARTBEAT_INTERVAL = 2000;
     private final ScheduledExecutorService executorService = Executors.newScheduledThreadPool(1);
     //volatile on all
     int commitIndex;
@@ -61,7 +61,7 @@ public class Node implements Serializable {
         this.matchIndex = new TreeMap<>();
         this.commandsInFlight = new ConcurrentHashMap<>();
         this.voteResponses = new HashMap<>();
-        this.heartBeatTimeoutValue = ThreadLocalRandom.current().nextInt(700, 2000);
+        this.heartBeatTimeoutValue = ThreadLocalRandom.current().nextInt(4000, 6000);
         this.gson = new Gson();
 
         //file backed db.
@@ -173,10 +173,11 @@ public class Node implements Serializable {
 
     //updates state to newTerm, does nothing if newTerm is stale
     private void updateTerm(int newTerm) {
-        if (newTerm != currentTerm)
+        if (newTerm > currentTerm) {
             votedFor = null;
-        currentTerm = newTerm;
-        transitionTo(Role.FOLLOWER);
+            currentTerm = newTerm;
+            transitionTo(Role.FOLLOWER);
+        }
     }
 
     private void handleSetMessage(JSONObject msg) {
@@ -234,7 +235,9 @@ public class Node implements Serializable {
 
                 } else {
                     ErrorMessage em = new ErrorMessage(MessageType.GET_RESPONSE, null, id, this.nodeName,
-                            String.format("No such key: %s", key));
+                            String.format("No such key: %s in %s", key, nodeName));
+                    //Logger.error(String.format("log size is %d", log.size()));
+                    Logger.error(store.toString() + " " + nodeName);
                     brokerManager.sendToBroker(em.serialize(gson));
                 }
 
@@ -279,6 +282,7 @@ public class Node implements Serializable {
             if (lastEntry == null || (!lastEntry.moreRecentThan(logTerm, logIndex))) {
                 votedFor = candidateId;
                 success = true;
+                restartElectionTimeout();
             }
         }
         //send result
@@ -330,17 +334,19 @@ public class Node implements Serializable {
         if (currentTerm <= m.getTerm()) { //TODO: correct?
             this.leader = m.source;
             updateTerm(m.getTerm());
-            int index = m.getPrevLogIndex();
-            Entry myEntry = getLastEntry();
-            if (m.getEntries().isEmpty() || myEntry == null || myEntry.getTerm() == m.getPrevLogTerm()) {
+            int matchedIndex = m.getPrevLogIndex();
+            if (matchedIndex >= log.size()) {
+                Logger.error(String.format("%s, leader thinks I match at %d, log size is %d", nodeName, matchedIndex, log.size()));
+            }
+            Entry myEntry = log.get(matchedIndex);
+            if (myEntry.getTerm() == m.getPrevLogTerm()) {
                 success = true;
-                if (!m.getEntries().isEmpty()) {
-                    List<Entry> entries = m.getEntries();
-                    if (!log.isEmpty()) {
-                        log = log.subList(0, index + 1);
-                    }
-                    log.addAll(entries);
+                List<Entry> entries = m.getEntries();
+                if (!log.isEmpty()) {
+                    log = log.subList(0, matchedIndex + 1);
                 }
+                log.addAll(entries);
+
                 int leaderCommit = m.getLeaderCommit();
                 if (leaderCommit > commitIndex) {
                     updateCommitIndex(Math.min(leaderCommit, log.size() - 1));
@@ -393,8 +399,14 @@ public class Node implements Serializable {
                 acceptedCount++;
             }
             List<Entry> newEntries = new ArrayList<>();
-            if (!log.isEmpty())
-                newEntries = (log.subList(nextIndex.get(peer), log.size()));
+            if (!log.isEmpty()) {
+                if (nextIndex.get(peer) < 0) {
+                    Logger.error(String.format("%s has a negative nextIndex(%d) for %s", nodeName, nextIndex.get(peer), peer));
+                } else if (nextIndex.get(peer) > log.size()) {
+                    Logger.error(String.format("%s has a large nextIndex(%d) for %s", nodeName, nextIndex.get(peer), peer));
+                } else
+                    newEntries = (log.subList(nextIndex.get(peer), log.size()));
+            }
             AppendEntriesMessageBuilder aemb = new AppendEntriesMessageBuilder()
                     .setTerm(currentTerm)
                     .setDestination(peer)
@@ -402,11 +414,13 @@ public class Node implements Serializable {
                     .setSource(this.nodeName)
                     .setEntries(newEntries)
                     .setLeaderId(this.nodeName);
-            if (!newEntries.isEmpty()) {
+            //if (!newEntries.isEmpty()) {
                 //TODO: so ugly
-                aemb.setPrevLogIndex(newEntries.get(0).index - 1);
-                aemb.setPrevLogTerm(log.get(newEntries.get(0).index - 1).term);
-            }
+                //if (newEntries.get(0).index < 1)
+                   // Logger.error(String.format("%s has a negative prevIndex(%d) for %s", nodeName, newEntries.get(0).index - 1, peer));
+                aemb.setPrevLogIndex(nextIndex.get(peer)-1);
+                aemb.setPrevLogTerm(log.get(nextIndex.get(peer)-1).term);
+            //}
 
             AppendEntriesMessage aem = aemb.createAppendEntriesMessage();
             brokerManager.sendToBroker(aem.serialize(gson));
@@ -477,6 +491,7 @@ public class Node implements Serializable {
 
             case LEADER:
                 Logger.info(String.format("%s from %s to %s", nodeName, this.role, role));
+                Logger.info("new leader has log" + log.toString());
                 if (this.role != Role.CANDIDATE)
                     Logger.error("Error, invalid state transition to LEADER");
                 this.role = role;
@@ -523,11 +538,13 @@ public class Node implements Serializable {
         if (newIndex == commitIndex)
             return;
         List<Integer> persistedRequests = new ArrayList<>();
-        for (Entry e : log.subList(commitIndex, newIndex + 1)) {
+        for (Entry e : log.subList(commitIndex+1, newIndex + 1)) {
             applyEntryToStateMachine(e);
+            Logger.info(e.toString() + " " + nodeName);
             persistedRequests.add(e.requestId);
         }
-
+        //Logger.info(store.toString());
+        Logger.info(log.toString());
         Logger.info(String.format("Applied to state machine %s", nodeName));
 
         if (this.role == Role.LEADER) {

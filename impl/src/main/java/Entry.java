@@ -35,4 +35,14 @@ public class Entry implements Serializable {
         return (term > otherTerm) || (otherTerm == term && index > otherIdx);
     }
 
+    @Override
+    public String toString() {
+        return "Entry{" +
+                "applied=" + applied +
+                ", key='" + key + '\'' +
+                ", value='" + value + '\'' +
+                ", term=" + term +
+                ", index=" + index +
+                '}';
+    }
 }
