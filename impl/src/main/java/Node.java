@@ -413,10 +413,9 @@ public class Node implements Serializable {
                     .setLeaderCommit(commitIndex)
                     .setSource(this.nodeName)
                     .setEntries(newEntries)
-                    .setLeaderId(this.nodeName);
-
-            aemb.setPrevLogIndex(nextIndex.get(peer)-1);
-            aemb.setPrevLogTerm(log.get(nextIndex.get(peer)-1).term);
+                    .setLeaderId(this.nodeName)
+                    .setPrevLogIndex(nextIndex.get(peer) - 1)
+                    .setPrevLogTerm(log.get(nextIndex.get(peer) - 1).term);
 
             AppendEntriesMessage aem = aemb.createAppendEntriesMessage();
             brokerManager.sendToBroker(aem.serialize(gson));
