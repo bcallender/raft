@@ -118,7 +118,7 @@ public class Node implements Serializable {
         }
         this.heartBeatSend =
                 this.executorService.scheduleAtFixedRate(new HeartbeatSender(this),
-                        HEARTBEAT_INTERVAL,
+                        0, //HEARTBEAT_INTERVAL
                         HEARTBEAT_INTERVAL,
                         TimeUnit.MILLISECONDS);
     }
@@ -169,11 +169,10 @@ public class Node implements Serializable {
 
     //updates state to newTerm, does nothing if newTerm is stale
     private void updateTerm(int newTerm) {
-        if (newTerm > currentTerm) {
-            currentTerm = newTerm;
+        if (newTerm != currentTerm)
             votedFor = null;
-            transitionTo(Role.FOLLOWER);
-        }
+        currentTerm = newTerm;
+        transitionTo(Role.FOLLOWER);
     }
 
     private void handleSetMessage(JSONObject msg) {
