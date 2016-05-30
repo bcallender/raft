@@ -454,7 +454,7 @@ public class Node implements Serializable {
             case FOLLOWER:
                 if (heartBeatSend != null)
                     heartBeatSend.cancel(true);
-                if (connected && this.role != Role.FOLLOWER) {
+                if (connected) {
                     restartElectionTimeout();
                 }
                 this.role = role;
