@@ -69,7 +69,7 @@ public class BrokerManager {
 
 
     public void start() {
-        while (true) {
+        while (!Thread.currentThread().isInterrupted()) {
             poller.poll();
 
             //subSock registered at index '0'
@@ -83,11 +83,13 @@ public class BrokerManager {
                 ZMsg msg = ZMsg.recvMsg(reqSock, ZMQ.DONTWAIT);
                 handleBrokerMessage(msg);
             }
+
             try {
                 Thread.sleep(1);
             } catch (InterruptedException e) {
                 e.printStackTrace();
             }
+
 
         }
     }

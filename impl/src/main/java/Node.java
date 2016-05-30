@@ -19,7 +19,7 @@ import java.util.concurrent.*;
 public class Node implements Serializable {
 
     public static final Charset CHARSET = Charset.defaultCharset();
-    private static final int HEARTBEAT_INTERVAL = 100;
+    private static final int HEARTBEAT_INTERVAL = 500;
     private final ScheduledExecutorService executorService = Executors.newScheduledThreadPool(1);
     //volatile on all
     int commitIndex;
@@ -61,7 +61,7 @@ public class Node implements Serializable {
         this.matchIndex = new TreeMap<>();
         this.commandsInFlight = new ConcurrentHashMap<>();
         this.voteResponses = new HashMap<>();
-        this.heartBeatTimeoutValue = ThreadLocalRandom.current().nextInt(300, 600);
+        this.heartBeatTimeoutValue = ThreadLocalRandom.current().nextInt(700, 2000);
         this.gson = new Gson();
 
         //file backed db.
@@ -71,8 +71,8 @@ public class Node implements Serializable {
                     .fileMmapEnableIfSupported()
                     .closeOnJvmShutdown()
                     .make();
-            //this.store = db.treeMap(this.nodeName);
-            this.store = new HashMap<>();
+            this.store = db.treeMap(this.nodeName);
+            //this.store = new HashMap<>();
         } catch (IOException e) {
             Logger.error("IO error creating db file");
             Logger.error(e.getMessage());
@@ -85,6 +85,10 @@ public class Node implements Serializable {
         this.log.add(e);
 
         transitionTo(Role.FOLLOWER);
+    }
+
+    public String getNodeName() {
+        return nodeName;
     }
 
     private void startElectionTimeout() {
@@ -511,7 +515,7 @@ public class Node implements Serializable {
             store.put(entry.key, entry.value);
             entry.applied = true;
         }
-        //db.commit();
+        db.commit();
     }
 
     private void updateCommitIndex(int newIndex) {
@@ -525,11 +529,9 @@ public class Node implements Serializable {
         }
 
         Logger.info(String.format("Applied to state machine %s", nodeName));
-        //TODO: actually persist to disk
 
         if (this.role == Role.LEADER) {
             Logger.info(String.format("Leader %s committed", nodeName));
-            // TODO: crashes between the previous warning and the next warning
             //send set responses if you're the leader
             for (Integer requestId : persistedRequests) {
                 if (commandsInFlight.containsKey(requestId)) {
