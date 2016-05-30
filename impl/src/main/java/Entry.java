@@ -7,6 +7,7 @@ public class Entry implements Serializable {
 
 
     boolean applied;
+    boolean noop;
 
     String key;
     String value;
@@ -14,13 +15,14 @@ public class Entry implements Serializable {
     int index;
     int requestId;
 
-    public Entry(boolean applied, String key, String value, int term, int index, int requestId) {
+    public Entry(boolean applied, String key, String value, int term, int index, int requestId, boolean noop) {
         this.applied = applied;
         this.key = key;
         this.value = value;
         this.term = term;
         this.index = index;
         this.requestId = requestId;
+        this.noop = noop;
 
     }
 
@@ -39,6 +41,7 @@ public class Entry implements Serializable {
     public String toString() {
         return "Entry{" +
                 "applied=" + applied +
+                ", noop=" + noop +
                 ", key='" + key + '\'' +
                 ", value='" + value + '\'' +
                 ", term=" + term +

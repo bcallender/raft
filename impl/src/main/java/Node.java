@@ -80,8 +80,7 @@ public class Node implements Serializable {
         }
 
 
-
-        Entry e = new Entry(true, null, null, 0, 0, 0); // no op
+        Entry e = new Entry(true, null, null, 0, 0, 0, true); // no op
         this.log.add(e);
 
         transitionTo(Role.FOLLOWER);
@@ -188,7 +187,7 @@ public class Node implements Serializable {
 
             if (this.role == Role.LEADER) { //TODO: log replication
                 commandsInFlight.put(msg.getInt("id"), new ClientCommand(MessageType.SET, key, value));
-                Entry entry = new Entry(false, key, value, currentTerm, log.size(), id);
+                Entry entry = new Entry(false, key, value, currentTerm, log.size(), id, false);
                 log.add(entry);
 
             } else {
@@ -413,13 +412,15 @@ public class Node implements Serializable {
                     .setLeaderCommit(commitIndex)
                     .setSource(this.nodeName)
                     .setEntries(newEntries)
-                    .setLeaderId(this.nodeName);
+                    .setLeaderId(this.nodeName)
+                    .setPrevLogIndex(nextIndex.get(peer) - 1)
+                    .setPrevLogTerm(log.get(nextIndex.get(peer) - 1).term);
             //if (!newEntries.isEmpty()) {
                 //TODO: so ugly
                 //if (newEntries.get(0).index < 1)
                    // Logger.error(String.format("%s has a negative prevIndex(%d) for %s", nodeName, newEntries.get(0).index - 1, peer));
-                aemb.setPrevLogIndex(nextIndex.get(peer)-1);
-                aemb.setPrevLogTerm(log.get(nextIndex.get(peer)-1).term);
+            //aemb.setPrevLogIndex(nextIndex.get(peer)-1);
+            //aemb.setPrevLogTerm(log.get(nextIndex.get(peer)-1).term);
             //}
 
             AppendEntriesMessage aem = aemb.createAppendEntriesMessage();
@@ -497,10 +498,15 @@ public class Node implements Serializable {
                 this.role = role;
                 electionTimeout.cancel(true);
                 // resetting the nextIndex and matchIndex map
+
                 for (String peer : brokerManager.getPeers()) {
                     matchIndex.put(peer, 0);
                     nextIndex.put(peer, log.size());
                 }
+
+                // appending no-op to log
+                Entry noop = new Entry(false, "", "", currentTerm, log.size(), 0, true);
+                log.add(noop);
 
                 restartHeartBeatTimeout();
 
@@ -526,6 +532,8 @@ public class Node implements Serializable {
     }
 
     private void applyEntryToStateMachine(Entry entry) {
+        if (entry.noop)
+            entry.applied = true;
         if (!entry.applied) { //have we already applied this? TODO: necessary?
             store.put(entry.key, entry.value);
             entry.applied = true;
