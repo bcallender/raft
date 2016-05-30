@@ -414,7 +414,7 @@ public class Node implements Serializable {
     }
 
     private void startNewElection() {
-        Logger.debug(String.format("Election timeout occurred, timeout value for %s is %d", nodeName, heartBeatTimeoutValue));
+        Logger.info(String.format("Election timeout occurred, timeout value for %s is %d", nodeName, heartBeatTimeoutValue));
         currentTerm++;
         votedFor = nodeName;
         int lastLogIndex = 0;
@@ -453,15 +453,16 @@ public class Node implements Serializable {
         flushCommandsInFlight();
         switch (role) {
             case FOLLOWER:
-                this.role = role;
                 if (heartBeatSend != null)
                     heartBeatSend.cancel(true);
-                if (connected) {
+                if (connected && this.role != Role.FOLLOWER) {
                     restartElectionTimeout();
                 }
+                this.role = role;
                 break;
 
             case CANDIDATE:
+                Logger.info(String.format("%s from %s to %s", nodeName, this.role, role));
                 if (this.role == Role.LEADER) {
                     Logger.error("Error, invalid state transition to CANDIDATE");
                     System.exit(0);
@@ -472,6 +473,7 @@ public class Node implements Serializable {
                 break;
 
             case LEADER:
+                Logger.info(String.format("%s from %s to %s", nodeName, this.role, role));
                 if (this.role != Role.CANDIDATE)
                     Logger.error("Error, invalid state transition to LEADER");
                 this.role = role;
