@@ -339,9 +339,9 @@ public class Node implements Serializable {
                     log.addAll(entries);
                 }
                 int leaderCommit = m.getLeaderCommit();
-                if (leaderCommit > commitIndex)
+                if (leaderCommit > commitIndex) {
                     updateCommitIndex(Math.min(leaderCommit, log.size() - 1));
-                    //TODO persist commits
+                }
             }
             restartElectionTimeout();
         }
@@ -373,6 +373,41 @@ public class Node implements Serializable {
                     m.source, m.success));
         }
 
+    }
+
+    public void sendHeartbeats() {
+        int n;
+        for (n = commitIndex+1; n < log.size(); n++) {
+            if (log.get(n).getTerm() == currentTerm)
+                break;
+        }
+        int acceptedCount = 1;
+        for (String peer : brokerManager.getPeers()) {
+            if (matchIndex.get(peer) >= n) {
+                acceptedCount++;
+            }
+            List<Entry> newEntries = new ArrayList<>();
+            if (!log.isEmpty())
+                newEntries = (log.subList(nextIndex.get(peer), log.size()));
+            AppendEntriesMessageBuilder aemb = new AppendEntriesMessageBuilder()
+                    .setTerm(currentTerm)
+                    .setDestination(peer)
+                    .setLeaderCommit(commitIndex)
+                    .setSource(this.nodeName)
+                    .setEntries(newEntries)
+                    .setLeaderId(this.nodeName);
+            if (!newEntries.isEmpty()) {
+                //TODO: so ugly
+                aemb.setPrevLogIndex(newEntries.get(0).index - 1);
+                aemb.setPrevLogTerm(log.get(newEntries.get(0).index - 1).term);
+            }
+
+            AppendEntriesMessage aem = aemb.createAppendEntriesMessage();
+            brokerManager.sendToBroker(aem.serialize(gson));
+        }
+        if (acceptedCount > (brokerManager.getPeers().size() + 1) / 2 && log.get(n).getTerm() == currentTerm && n > commitIndex) {
+            updateCommitIndex(n);
+        }
     }
 
     private void startNewElection() {
@@ -450,41 +485,6 @@ public class Node implements Serializable {
         }
     }
 
-    public void sendHeartbeats() {
-        int n;
-        for (n = commitIndex+1; n < log.size(); n++) {
-            if (log.get(n).getTerm() == currentTerm)
-                    break;
-        }
-        int acceptedCount = 1;
-        for (String peer : brokerManager.getPeers()) {
-            if (matchIndex.get(peer) >= n) {
-                acceptedCount++;
-            }
-            List<Entry> newEntries = new ArrayList<>();
-            if (!log.isEmpty())
-                newEntries = (log.subList(nextIndex.get(peer), log.size()));
-            AppendEntriesMessageBuilder aemb = new AppendEntriesMessageBuilder()
-                    .setTerm(currentTerm)
-                    .setDestination(peer)
-                    .setLeaderCommit(commitIndex)
-                    .setSource(this.nodeName)
-                    .setEntries(newEntries)
-                    .setLeaderId(this.nodeName);
-            if (!newEntries.isEmpty()) {
-                //TODO: so ugly
-                aemb.setPrevLogIndex(newEntries.get(0).index - 1);
-                aemb.setPrevLogTerm(log.get(newEntries.get(0).index - 1).term);
-            }
-
-            AppendEntriesMessage aem = aemb.createAppendEntriesMessage();
-            brokerManager.sendToBroker(aem.serialize(gson));
-        }
-        if (acceptedCount > (brokerManager.getPeers().size() + 1) / 2 && log.get(n).getTerm() == currentTerm && n > commitIndex) {
-            updateCommitIndex(n);
-        }
-    }
-
     private void flushCommandsInFlight() {
         for (Map.Entry<Integer, ClientCommand> entry : commandsInFlight.entrySet()) {
             if (entry.getValue().getType() == MessageType.GET) {
@@ -512,6 +512,8 @@ public class Node implements Serializable {
 
     private void updateCommitIndex(int newIndex) {
         //persist changes
+        if (newIndex == commitIndex)
+            return;
         List<Integer> persistedRequests = new ArrayList<>();
         for (Entry e : log.subList(commitIndex, newIndex + 1)) {
             applyEntryToStateMachine(e);
@@ -537,9 +539,9 @@ public class Node implements Serializable {
                 }
 
             }
-            this.commitIndex = newIndex;
             Logger.info(String.format("Sent set responses as leader %s", nodeName));
         }
+        this.commitIndex = newIndex;
     }
 
 

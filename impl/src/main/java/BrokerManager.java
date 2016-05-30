@@ -45,7 +45,7 @@ public class BrokerManager {
 
 
         this.debug = true;
-        Logger.setMasterLogLevel(Logger.LogLevel.DEBUG);
+        Logger.setMasterLogLevel(Logger.LogLevel.INFO);
 
 
         this.node = new Node(nodeName, this);
