@@ -39,7 +39,7 @@ public class Node implements Serializable {
     private String nodeName;
     private boolean connected;
     private DB db;
-
+    private int quorum;
 
     //persistent
     private int currentTerm;
@@ -63,6 +63,7 @@ public class Node implements Serializable {
         this.voteResponses = new HashMap<>();
         this.heartBeatTimeoutValue = ThreadLocalRandom.current().nextInt(4000, 6000);
         this.gson = new Gson();
+        this.quorum = (brokerManager.getPeers().size() + 1) / 2;
 
         //file backed db.
         try {
@@ -223,25 +224,6 @@ public class Node implements Serializable {
             if (this.role == Role.LEADER) {
                 ClientCommand command = new ClientCommand(MessageType.GET, key, null);
                 commandsInFlight.put(id, command);
-                //return the latest value from the store TODO:check if still leader?
-                if (store.containsKey(key)) {
-
-                    Message m = new Message(MessageType.GET_RESPONSE, null, id, this.nodeName);
-                    JsonObject getResp = m.serializeToObject(gson);
-                    getResp.addProperty("key", key);
-                    getResp.addProperty("value", store.get(key));
-                    brokerManager.sendToBroker(getResp.toString().getBytes(CHARSET));
-
-                } else {
-                    ErrorMessage em = new ErrorMessage(MessageType.GET_RESPONSE, null, id, this.nodeName,
-                            String.format("No such key: %s in %s", key, nodeName));
-                    //Logger.error(String.format("log size is %d", log.size()));
-                    Logger.error(store.toString() + " " + nodeName);
-                    brokerManager.sendToBroker(em.serialize(gson));
-                }
-
-                commandsInFlight.remove(id);
-
 
             } else { //i'm not the leader, I need to get the value from the leader
                 //do we know who the leader is?
@@ -302,7 +284,6 @@ public class Node implements Serializable {
             this.voteResponses.put(response.source, response.success);
             int numYeas = 0;
             int numNays = 0;
-            int quorum = (brokerManager.getPeers().size() + 1) / 2;
             if (voteResponses.size() > quorum) { //we have enough votes to check for quorum
                 for (Boolean vote : voteResponses.values()) {
                     if (vote)
@@ -379,6 +360,8 @@ public class Node implements Serializable {
                 }
                 nextIndex.put(m.source, next);
             }
+
+            updateGetRequests(m.source);
         } else {
             //drop message if not leader
             Logger.info(String.format("%s received extraneous append entries response from %s:%s", this.nodeName,
@@ -568,6 +551,40 @@ public class Node implements Serializable {
         this.commitIndex = newIndex;
     }
 
+    private void updateGetRequests(String peer) {
+        ClientCommand cmd;
+        String key;
+        Integer id;
+        Iterator<Integer> itr = commandsInFlight.keySet().iterator();
+
+        while (itr.hasNext()) {
+            id = itr.next();
+            cmd = commandsInFlight.get(id);
+            key = cmd.getKey();
+            if (cmd.getType() == MessageType.GET) {
+                cmd.addResponse(peer);
+            }
+            if (cmd.getResponsesSize() >= quorum) {
+                //return the latest value from the store TODO:check if still leader?
+                if (store.containsKey(key)) {
+                    Message m = new Message(MessageType.GET_RESPONSE, null, id, this.nodeName);
+                    JsonObject getResp = m.serializeToObject(gson);
+                    getResp.addProperty("key", key);
+                    getResp.addProperty("value", store.get(key));
+                    brokerManager.sendToBroker(getResp.toString().getBytes(CHARSET));
+
+                } else {
+                    ErrorMessage em = new ErrorMessage(MessageType.GET_RESPONSE, null, id, this.nodeName,
+                            String.format("No such key: %s in %s", key, nodeName));
+                    //Logger.error(String.format("log size is %d", log.size()));
+                    Logger.error(store.toString() + " " + nodeName);
+                    brokerManager.sendToBroker(em.serialize(gson));
+                }
+
+                commandsInFlight.remove(id);
+            }
+        }
+    }
 
 
     public enum Role {FOLLOWER, CANDIDATE, LEADER}
