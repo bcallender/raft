@@ -371,6 +371,7 @@ public class Node implements Serializable {
 
     public void handleAppendEntriesResponse(JSONObject msg) {
         RPCMessageResponse m = RPCMessageResponse.deserialize(msg.toString().getBytes(Charset.defaultCharset()), gson);
+        updateTerm(m.term); //if the term changes we swap to follower and exit
         if (role == Role.LEADER) {
             if (m.success) { //on success update recorded state for that node
                 matchIndex.put(m.source, m.logIndex);
@@ -497,7 +498,7 @@ public class Node implements Serializable {
                 Logger.info(String.format("%s from %s to %s", nodeName, this.role, role));
                 Logger.info("new leader has log" + log.toString());
                 if (this.role != Role.CANDIDATE)
-                    Logger.warning("state transition to LEADER from FOLLOWER");
+                    Logger.warning(nodeName + ",state transition to LEADER from FOLLOWER");
                 this.role = role;
                 cancelElectionTimeout();
                 // resetting the nextIndex and matchIndex map
