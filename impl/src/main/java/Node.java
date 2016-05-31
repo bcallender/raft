@@ -90,6 +90,8 @@ public class Node implements Serializable {
 
         try {
             Role startingRole = Role.valueOf(startRole.toUpperCase());
+            if (startingRole == Role.LEADER)
+                currentTerm++;
             transitionTo(startingRole);
         } catch (IllegalArgumentException iae) {
             Logger.error(String.format("Invalid starting role: %s, starting as FOLLOWER", startRole));
@@ -392,12 +394,14 @@ public class Node implements Serializable {
 
     public void sendHeartbeats() {
         int n;
+        //Logger.info("started hb");
         for (n = commitIndex+1; n < log.size(); n++) {
             if (log.get(n).getTerm() == currentTerm)
                 break;
         }
         int acceptedCount = 1;
         for (String peer : brokerManager.getPeers()) {
+            //Logger.info("sending hb to " + peer);
             if (matchIndex.get(peer) >= n) {
                 acceptedCount++;
             }
@@ -410,6 +414,7 @@ public class Node implements Serializable {
                 } else
                     newEntries = (log.subList(nextIndex.get(peer), log.size()));
             }
+            //Logger.info("found newEntries for " + peer);
             AppendEntriesMessageBuilder aemb = new AppendEntriesMessageBuilder()
                     .setTerm(currentTerm)
                     .setDestination(peer)
@@ -419,13 +424,15 @@ public class Node implements Serializable {
                     .setLeaderId(this.nodeName)
                     .setPrevLogIndex(nextIndex.get(peer) - 1)
                     .setPrevLogTerm(log.get(nextIndex.get(peer) - 1).term);
-
+            //Logger.info("Built message for " + peer);
             AppendEntriesMessage aem = aemb.createAppendEntriesMessage();
             brokerManager.sendToBroker(aem.serialize(gson));
         }
+
         if (acceptedCount > (brokerManager.getPeers().size() + 1) / 2 && log.get(n).getTerm() == currentTerm && n > commitIndex) {
             updateCommitIndex(n);
         }
+        //Logger.info("ended hb");
     }
 
     private void startNewElection() {
@@ -551,7 +558,7 @@ public class Node implements Serializable {
             Logger.trace(e.toString() + " " + nodeName);
             persistedRequests.add(e.requestId);
         }
-        //Logger.info(store.toString());
+
         Logger.trace(log.toString());
         Logger.info(String.format("Applied to state machine %s", nodeName));
 
