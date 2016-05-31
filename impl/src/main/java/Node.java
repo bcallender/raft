@@ -296,7 +296,10 @@ public class Node implements Serializable {
                     transitionTo(Role.LEADER);
                 } else if (numNays > quorum) { //failed quorum, restart election
                     Logger.info(String.format("Node %s did not receive a quorum of votes. Split Vote...", this.nodeName));
-                    //transitionTo(Role.CANDIDATE);
+                    this.electionTimeout.cancel(true);
+                    /* if you can't become the leader now, there's no way you're going to become the leader in this election
+                    * so you should stop trying*/
+
                 }
             }
         } else {

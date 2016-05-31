@@ -6,3 +6,8 @@ start -n node-5
 start -n node-6
 start -n node-7
 start -n node-8
+
+
+set -n node-1 -k B -v 42
+set -n node-2 -k C -v 42
+set -n node-3 -k D -v 42
