@@ -22,7 +22,7 @@ public class BrokerManager {
     private boolean debug;
     private ReentrantLock reqSockLock;
 
-    public BrokerManager(List<String> peers, String nodeName, String pubEndpoint, String routerEndpoint) {
+    public BrokerManager(List<String> peers, String nodeName, String pubEndpoint, String routerEndpoint, boolean debug) {
         this.peers = peers;
         this.pubEndpoint = pubEndpoint;
         this.routerEndpoint = routerEndpoint;
@@ -44,8 +44,11 @@ public class BrokerManager {
         this.reqSockLock = new ReentrantLock();
 
 
-        this.debug = true;
-        Logger.setMasterLogLevel(Logger.LogLevel.INFO);
+        this.debug = debug;
+        if (debug)
+            Logger.setMasterLogLevel(Logger.LogLevel.DEBUG);
+        else
+            Logger.setMasterLogLevel(Logger.LogLevel.INFO);
 
 
         this.node = new Node(nodeName, this);

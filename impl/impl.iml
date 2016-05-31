@@ -14,6 +14,8 @@
     <orderEntry type="library" name="Maven: org.zeromq:jeromq:0.3.4" level="project" />
     <orderEntry type="library" name="Maven: org.zeromq:jeromq:0.3.4" level="project" />
     <orderEntry type="library" name="Maven: org.zeromq:jeromq:0.3.4" level="project" />
+    <orderEntry type="library" name="Maven: org.mapdb:mapdb:2.0-beta3" level="project" />
+    <orderEntry type="library" name="Maven: org.zeromq:jeromq:0.3.4" level="project" />
     <orderEntry type="library" name="Maven: com.beust:jcommander:1.7" level="project" />
     <orderEntry type="library" name="Maven: org.json:json:20160212" level="project" />
     <orderEntry type="library" name="Maven: com.google.code.gson:gson:2.6.2" level="project" />

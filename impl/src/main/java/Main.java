@@ -24,7 +24,7 @@ public class Main {
         Main main = new Main();
         new JCommander(main, args);
         BrokerManager n = new BrokerManager(main.peers, main.nodeName,
-                main.pubEndpoint, main.routerEndpoint);
+                main.pubEndpoint, main.routerEndpoint, main.debug);
         n.start();
 
 

@@ -19,7 +19,7 @@ import java.util.concurrent.*;
 public class Node implements Serializable {
 
     public static final Charset CHARSET = Charset.defaultCharset();
-    private static final int HEARTBEAT_INTERVAL = 2000;
+    private static final int HEARTBEAT_INTERVAL = 250;
     private final ScheduledExecutorService executorService = Executors.newScheduledThreadPool(1);
     //volatile on all
     int commitIndex;
@@ -61,7 +61,7 @@ public class Node implements Serializable {
         this.matchIndex = new TreeMap<>();
         this.commandsInFlight = new ConcurrentHashMap<>();
         this.voteResponses = new HashMap<>();
-        this.heartBeatTimeoutValue = ThreadLocalRandom.current().nextInt(4000, 6000);
+        this.heartBeatTimeoutValue = ThreadLocalRandom.current().nextInt(1000, 2500);
         this.gson = new Gson();
         this.quorum = (brokerManager.getPeers().size() + 1) / 2;
 
@@ -72,7 +72,7 @@ public class Node implements Serializable {
                     .fileMmapEnableIfSupported()
                     .closeOnJvmShutdown()
                     .make();
-            this.store = db.treeMap(this.nodeName);
+            this.store = db.hashMap(this.nodeName);
             //this.store = new HashMap<>();
         } catch (IOException e) {
             Logger.error("IO error creating db file");
@@ -524,11 +524,11 @@ public class Node implements Serializable {
         List<Integer> persistedRequests = new ArrayList<>();
         for (Entry e : log.subList(commitIndex+1, newIndex + 1)) {
             applyEntryToStateMachine(e);
-            Logger.info(e.toString() + " " + nodeName);
+            Logger.trace(e.toString() + " " + nodeName);
             persistedRequests.add(e.requestId);
         }
         //Logger.info(store.toString());
-        Logger.info(log.toString());
+        Logger.trace(log.toString());
         Logger.info(String.format("Applied to state machine %s", nodeName));
 
         if (this.role == Role.LEADER) {
@@ -554,18 +554,17 @@ public class Node implements Serializable {
     private void updateGetRequests(String peer) {
         ClientCommand cmd;
         String key;
-        Integer id;
-        Iterator<Integer> itr = commandsInFlight.keySet().iterator();
 
-        while (itr.hasNext()) {
-            id = itr.next();
-            cmd = commandsInFlight.get(id);
+
+        for (Map.Entry<Integer, ClientCommand> entry : commandsInFlight.entrySet()) {
+            cmd = entry.getValue();
+            int id = entry.getKey();
             key = cmd.getKey();
             if (cmd.getType() == MessageType.GET) {
                 cmd.addResponse(peer);
             }
             if (cmd.getResponsesSize() >= quorum) {
-                //return the latest value from the store TODO:check if still leader?
+                //return the latest value from the store
                 if (store.containsKey(key)) {
                     Message m = new Message(MessageType.GET_RESPONSE, null, id, this.nodeName);
                     JsonObject getResp = m.serializeToObject(gson);
@@ -576,8 +575,8 @@ public class Node implements Serializable {
                 } else {
                     ErrorMessage em = new ErrorMessage(MessageType.GET_RESPONSE, null, id, this.nodeName,
                             String.format("No such key: %s in %s", key, nodeName));
-                    //Logger.error(String.format("log size is %d", log.size()));
-                    Logger.error(store.toString() + " " + nodeName);
+                    Logger.debug(String.format("log size is %d", log.size()));
+                    Logger.trace(store.toString() + " " + nodeName);
                     brokerManager.sendToBroker(em.serialize(gson));
                 }
 
