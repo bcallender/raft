@@ -1,13 +1,10 @@
-start -n node-1
-start -n node-2
-start -n node-3
-start -n node-4
-start -n node-5
-start -n node-6
-start -n node-7
-start -n node-8
+start -n node-1 -- --force-leader node-5
+start -n node-2 -- --force-leader node-5
+start -n node-3 -- --force-leader node-5
+start -n node-4 -- --force-leader node-5
+start -n node-5 -- --force-role LEADER
+start -n node-6 -- --force-leader node-5
+start -n node-7	-- --force-leader node-5
+start -n node-8	-- --force-leader node-5
 
 
-set -n node-1 -k B -v 42
-set -n node-2 -k C -v 42
-set -n node-3 -k D -v 42

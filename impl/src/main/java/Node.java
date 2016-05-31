@@ -48,7 +48,7 @@ public class Node implements Serializable {
     //requestVote State
     private HashMap<String, Boolean> voteResponses;
 
-    public Node(String nodeName, BrokerManager brokerManager) {
+    public Node(String nodeName, BrokerManager brokerManager, String startRole, String startingLeader) {
         this.nodeName = nodeName;
         this.brokerManager = brokerManager;
         this.connected = false;
@@ -84,7 +84,18 @@ public class Node implements Serializable {
         Entry e = new Entry(true, null, null, 0, 0, 0, true); // no op
         this.log.add(e);
 
-        transitionTo(Role.FOLLOWER);
+        if (startingLeader != null) {
+            this.leader = startingLeader;
+        }
+
+        try {
+            Role startingRole = Role.valueOf(startRole.toUpperCase());
+            transitionTo(startingRole);
+        } catch (IllegalArgumentException iae) {
+            Logger.error(String.format("Invalid starting role: %s, starting as FOLLOWER", startRole));
+            transitionTo(Role.FOLLOWER);
+        }
+
     }
 
     public String getNodeName() {
@@ -103,9 +114,8 @@ public class Node implements Serializable {
     }
 
     private void restartElectionTimeout() {
-        if (this.electionTimeout != null) {
-            this.electionTimeout.cancel(true);
-        }
+        cancelElectionTimeout();
+        heartBeatTimeoutValue = ThreadLocalRandom.current().nextInt(700, 2000);
         this.electionTimeout =
                 this.executorService.scheduleAtFixedRate(new ElectionTimeoutHandler(this),
                         heartBeatTimeoutValue,
@@ -117,14 +127,18 @@ public class Node implements Serializable {
 
 
     private void restartHeartBeatTimeout() {
-        if (this.heartBeatSend != null) {
-            this.heartBeatSend.cancel(true);
-        }
+        cancelHeartbeatTimeout();
         this.heartBeatSend =
                 this.executorService.scheduleAtFixedRate(new HeartbeatSender(this),
                         0, //HEARTBEAT_INTERVAL
                         HEARTBEAT_INTERVAL,
                         TimeUnit.MILLISECONDS);
+    }
+
+    private void cancelHeartbeatTimeout() {
+        if (this.heartBeatSend != null) {
+            this.heartBeatSend.cancel(true);
+        }
     }
 
     public void handleMessage(ZMsg message) {
@@ -164,8 +178,11 @@ public class Node implements Serializable {
                     connected = true;
                     JSONObject hr = new JSONObject(String.format("{'type': 'helloResponse', 'source': %s}", nodeName));
                     brokerManager.sendToBroker(hr.toString().getBytes(CHARSET));
-                    Logger.info("BrokerManager Running");
-                    startElectionTimeout();
+                    Logger.info(this.nodeName + " BrokerManager Running");
+                    if (this.role == Role.LEADER) //forced to be leader
+                        restartHeartBeatTimeout();
+                    else
+                        startElectionTimeout();
                 }
             case UNKNOWN:
         }
@@ -451,9 +468,8 @@ public class Node implements Serializable {
         flushCommandsInFlight();
         switch (role) {
             case FOLLOWER:
-                if (heartBeatSend != null)
-                    heartBeatSend.cancel(true);
-                if (connected) {
+                cancelHeartbeatTimeout();
+                if (connected && this.leader == null) {
                     restartElectionTimeout();
                 }
                 this.role = role;
@@ -474,9 +490,9 @@ public class Node implements Serializable {
                 Logger.info(String.format("%s from %s to %s", nodeName, this.role, role));
                 Logger.info("new leader has log" + log.toString());
                 if (this.role != Role.CANDIDATE)
-                    Logger.error("Error, invalid state transition to LEADER");
+                    Logger.warning("state transition to LEADER from FOLLOWER");
                 this.role = role;
-                electionTimeout.cancel(true);
+                cancelElectionTimeout();
                 // resetting the nextIndex and matchIndex map
                 for (String peer : brokerManager.getPeers()) {
                     matchIndex.put(peer, 0);
@@ -486,11 +502,16 @@ public class Node implements Serializable {
                 // appending no-op to log
                 Entry noop = new Entry(false, "", "", currentTerm, log.size(), 0, true);
                 log.add(noop);
-
-                restartHeartBeatTimeout();
+                if (connected)
+                    restartHeartBeatTimeout();
 
                 break;
         }
+    }
+
+    private void cancelElectionTimeout() {
+        if (electionTimeout != null)
+            electionTimeout.cancel(true);
     }
 
     private void flushCommandsInFlight() {

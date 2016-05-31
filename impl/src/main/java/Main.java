@@ -19,12 +19,16 @@ public class Main {
     private String nodeName;
     @Parameter(names = "--peer", description = "Peers")
     private List<String> peers = new ArrayList<>();
+    @Parameter(names = "--force-role", description = "Force a node into a starting role (default FOLLOWER)")
+    private String startRole = "FOLLOWER";
+    @Parameter(names = "--force-leader", description = "This node will startup thinking the leader is this")
+    private String knownLeader = null;
 
     public static void main(String[] args) {
         Main main = new Main();
         new JCommander(main, args);
         BrokerManager n = new BrokerManager(main.peers, main.nodeName,
-                main.pubEndpoint, main.routerEndpoint, main.debug);
+                main.pubEndpoint, main.routerEndpoint, main.debug, main.startRole, main.knownLeader);
         n.start();
 
 

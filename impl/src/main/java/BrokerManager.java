@@ -22,7 +22,8 @@ public class BrokerManager {
     private boolean debug;
     private ReentrantLock reqSockLock;
 
-    public BrokerManager(List<String> peers, String nodeName, String pubEndpoint, String routerEndpoint, boolean debug) {
+    public BrokerManager(List<String> peers, String nodeName, String pubEndpoint, String routerEndpoint, boolean debug,
+                         String startingRole, String startingLeader) {
         this.peers = peers;
         this.pubEndpoint = pubEndpoint;
         this.routerEndpoint = routerEndpoint;
@@ -51,7 +52,13 @@ public class BrokerManager {
             Logger.setMasterLogLevel(Logger.LogLevel.INFO);
 
 
-        this.node = new Node(nodeName, this);
+        this.node = new Node(nodeName, this, startingRole, startingLeader);
+
+        Runtime.getRuntime().addShutdownHook(new Thread() {
+            public void run() {
+                shutdown();
+            }
+        });
     }
 
     private void handleBrokerMessage(ZMsg message) {
@@ -98,6 +105,7 @@ public class BrokerManager {
     }
 
     public void shutdown() {
+        Logger.warning("Recieved interrupt from user, shutting down");
         this.subSock.close();
         this.reqSock.close();
     }
