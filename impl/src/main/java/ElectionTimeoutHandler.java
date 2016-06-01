@@ -12,6 +12,10 @@ public class ElectionTimeoutHandler implements Runnable {
 
     @Override
     public void run() {
-        parent.transitionTo(Node.Role.CANDIDATE);
+        try {
+            parent.transitionTo(Node.Role.CANDIDATE);
+        } catch (Exception e) { //catch any exception that happens in the thread so we can see them on the logger.
+            Logger.error(String.format("%s, %s ", parent.getNodeName(), e.toString()));
+        }
     }
 }

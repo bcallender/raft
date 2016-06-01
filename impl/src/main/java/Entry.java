@@ -1,19 +1,21 @@
 import java.io.Serializable;
 
 /**
- * Created by brandon on 5/24/16.
+ * Entry in the log of a raft node. Contains two special fields (noop and applied) which are used in our implmentation of
+ * leader elections and commiting entires to stable storage respectively. Also contains the requestId of the client command
+ * to make sure that responses are always sent to requests, regardless of leader elections.
  */
 public class Entry implements Serializable {
 
 
-    boolean applied;
-    boolean noop;
+    private boolean applied;
+    private boolean noop;
 
-    String key;
-    String value;
-    int term;
-    int index;
-    int requestId;
+    private String key;
+    private String value;
+    private int term;
+    private int index;
+    private int requestId;
 
     public Entry(boolean applied, String key, String value, int term, int index, int requestId, boolean noop) {
         this.applied = applied;
@@ -34,8 +36,16 @@ public class Entry implements Serializable {
         return applied;
     }
 
+    public void setApplied(boolean applied) {
+        this.applied = applied;
+    }
+
     public boolean isNoop() {
         return noop;
+    }
+
+    public void setNoop(boolean noop) {
+        this.noop = noop;
     }
 
     public String getKey() {

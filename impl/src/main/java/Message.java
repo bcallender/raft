@@ -6,16 +6,16 @@ import java.nio.charset.Charset;
 
 /**
  * General message class for attributes that will be a part of any message (type, destination, id, source).
- * This is a superclass of all specific message classes, so it implements serialize, which is the same across all the
+ * This is a superclass of all specific message classes, so it implements serialize, which is inherited across all the
  * MessageTypes. serializeToObject is a helper method used to generate an intermediate JsonObject to add custom fields to it.
  * We thought this was a good middle ground instead of creating a custom message type for all the different messageTypes.
  */
 public class Message implements Serializable {
 
-    MessageType type;
-    String destination;
-    int id;
-    String source;
+    private MessageType type;
+    private String destination;
+    private int id;
+    private String source;
 
     public Message(MessageType type, String destination, int id, String source) {
         this.type = type;
@@ -23,6 +23,22 @@ public class Message implements Serializable {
         this.id = id;
         this.source = source;
 
+    }
+
+    public MessageType getType() {
+        return type;
+    }
+
+    public String getDestination() {
+        return destination;
+    }
+
+    public int getId() {
+        return id;
+    }
+
+    public String getSource() {
+        return source;
     }
 
     //all message types can be serialized into JSON

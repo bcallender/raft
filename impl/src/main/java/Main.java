@@ -5,7 +5,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Created by brandon on 5/20/16.
+ * Main class that handles command line arguments and begins broker manager polling loop.
  */
 public class Main {
 

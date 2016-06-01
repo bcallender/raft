@@ -1,9 +1,5 @@
-import com.google.gson.Gson;
-
-import java.nio.charset.Charset;
-
 /**
- * Created by brandon on 5/26/16.
+ * ErrorMessage helper class to enable easy serialization of error message for sending out on zmq.
  */
 public class ErrorMessage extends Message {
 
@@ -14,17 +10,4 @@ public class ErrorMessage extends Message {
         this.error = error;
     }
 
-    public static ErrorMessage deserialize(byte[] payload, Gson gson) {
-        String jsonPayload = new String(payload, Charset.defaultCharset());
-        return gson.fromJson(jsonPayload, ErrorMessage.class);
-    }
-
-    public static ErrorMessage deserialize(String payload, Gson gson) {
-        return gson.fromJson(payload, ErrorMessage.class);
-
-    }
-
-    public String getError() {
-        return error;
-    }
 }

@@ -1,7 +1,7 @@
 import org.zeromq.ZMQ;
 
 /**
- * Created by brandon on 5/25/16.
+ * Should control the sending of heartbeats on a new thread.
  */
 public class HeartbeatSender implements Runnable {
 

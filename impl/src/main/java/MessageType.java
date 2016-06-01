@@ -1,7 +1,7 @@
 import com.google.gson.annotations.SerializedName;
 
 /**
- * Created by brandon on 5/22/16.
+ * Enum for all the different messageTypes we send so we can switch on the enum and handle each type.
  */
 public enum MessageType {
     /* This is very messy, but unfortunately necessary. We wanted to adhere to standard enum rules with respect to case

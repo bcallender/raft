@@ -9,37 +9,42 @@ import org.zeromq.ZMsg;
 
 import java.io.File;
 import java.io.IOException;
-import java.io.Serializable;
 import java.nio.charset.Charset;
 import java.util.*;
 import java.util.concurrent.*;
 
 /**
- * Created by techbar on 5/25/16.
+ * The node class implements all logic needed at the node level in the Raft paper. A dispatcher in handleMessage
+ * sends messages to handler functions, which are defined for all valid messagee types. Uses a scheduled threadPool to
+ * handle sending heartbeats and timing out on election timeouts.
  */
-public class Node implements Serializable {
+public class Node {
 
     private static final Charset CHARSET = Charset.defaultCharset();
-    private static final int HEARTBEAT_INTERVAL = 150;
+    private static final int HEARTBEAT_INTERVAL = 150; //milliseconds between heartbeats
     private final ScheduledExecutorService executorService = Executors.newScheduledThreadPool(1);
+    //we use a scheduled executor service to schedule/execute heartbeats and election timers, spawning new threads
+    //when the timers complete
     private ScheduledFuture<?> heartBeatSend;
     private ScheduledFuture<?> electionTimeout;
-    private int heartBeatTimeoutValue;
-    private Gson gson;
-    private Map<Integer, ClientCommand> commandsInFlight;
+    private int heartBeatTimeoutValue; //amount of time to wait for a heartbeat before timing out
+    private Gson gson; //gson instance for parsing/generating JSON.
+    private Map<Integer, ClientCommand> commandsInFlight; //commands issued to this node -- used to keep track of progress
+    //and reply to GET commands.
     private BrokerManager brokerManager;
-    private Map<String, String> store;
+    private Map<String, String> store; //Any datastore we use must implement the Map interface. We use MapDB for persistent
+    //storage to disk, it implements this interface and supports transactions and rollbacks.
     private String nodeName;
     private boolean connected;
-    private DB db;
-    private int quorum;
+    private DB db; //MapDB instance used for creating databases
+    private int quorum; //number of nodes needed for quorum
 
-    //volatile on all
+    //volatile on all -- standard raft
     private int commitIndex;
     private Role role;
     private String leader;
-    //volatile on master
-    private Map<String, Integer> nextIndex;
+    //volatile on master -- standard raft
+    private Map<String, Integer> nextIndex; //maps instead of arrays for easier use.
     private Map<String, Integer> matchIndex;
     private List<Entry> log;
 
@@ -47,7 +52,7 @@ public class Node implements Serializable {
     private int currentTerm;
     private String votedFor;
     //requestVote State
-    private HashMap<String, Boolean> voteResponses;
+    private HashMap<String, Boolean> voteResponses; //keep track of responses so we know if we've been elected leader
 
     public Node(String nodeName, BrokerManager brokerManager, String startRole, String startingLeader) {
         this.nodeName = nodeName;
@@ -68,13 +73,14 @@ public class Node implements Serializable {
 
         //file backed db.
         try {
-            File dbFile = File.createTempFile(this.nodeName, ".tmpDB");
+            File dbFile = File.createTempFile(this.nodeName, ".tmpDB"); //creates a temporary database file
+            //in production, we might specify this as the same file every time -- that way we could support true
+            //fail-recover behavior, all entries reported as committed are guarunteed to be placed on stable storage.
             this.db = DBMaker.fileDB(dbFile)
                     .fileMmapEnableIfSupported()
                     .closeOnJvmShutdown()
                     .make();
             this.store = db.hashMap(this.nodeName);
-            //this.store = new HashMap<>();
         } catch (IOException e) {
             Logger.error("IO error creating db file");
             Logger.error(e.getMessage());
@@ -83,12 +89,13 @@ public class Node implements Serializable {
 
 
         Entry e = new Entry(true, null, null, 0, 0, 0, true); // no op
-        this.log.add(e);
+        this.log.add(e); //begin log with a no op so the first true index is 1 (as in raft)
 
         if (startingLeader != null) {
             this.leader = startingLeader;
         }
 
+        //logic for forcing a node to be a leader
         try {
             Role startingRole = Role.valueOf(startRole.toUpperCase());
             if (startingRole == Role.LEADER)
@@ -110,8 +117,8 @@ public class Node implements Serializable {
         MessageType type = MessageType.UNKNOWN;
         try {
             msg = new JSONObject(message.getLast().toString());
-            type = MessageType.parse(msg.getString("type"));
-        } catch (NullPointerException | JSONException je) {
+            type = MessageType.parse(msg.getString("type")); //parse type out of message
+        } catch (NullPointerException | JSONException je) { //malformed json or null message.
             if (message != null)
                 Logger.warning(String.format("Received malformed message : %s", message.toString()));
             else
@@ -160,7 +167,7 @@ public class Node implements Serializable {
         }
     }
 
-    //updates state to newTerm, does nothing if newTerm is stale
+    //updates state to newTerm, does nothing if newTerm is stale, transition to follower if your term is forcibly updated
     private void updateTerm(int newTerm) {
         if (newTerm > currentTerm) {
             votedFor = null;
@@ -169,21 +176,26 @@ public class Node implements Serializable {
         }
     }
 
+    /* handler for SET messages. if we are the leader, put the command in the commandsInFlight, append a new entry to the log
+    * check at the next appendEntriesResponse whether or not we can reply to the client that their SET has succeeded.
+    * If you aren't the leader, forward the request to the node you think is the leader -- eventually a leader will get
+     * the request and start processing it, or a node that does not have a leader link to follow will reply with an error. */
     private void handleSetMessage(JSONObject msg) {
         try {
             String key = msg.getString("key");
             String value = msg.getString("value");
             int id = msg.getInt("id");
 
-            if (this.role == Role.LEADER) { //TODO: log replication
+            if (this.role == Role.LEADER) {
                 commandsInFlight.put(msg.getInt("id"), new ClientCommand(MessageType.SET, key, value));
                 Entry entry = new Entry(false, key, value, currentTerm, log.size(), id, false);
                 log.add(entry);
 
             } else {
                 if (leader != null) {
-                    Message m = new Message(MessageType.SET_REQUEST_FORWARD, leader, id, this.nodeName);
-                    JsonObject fwd = m.serializeToObject(gson);
+                    Message setForward = new Message(MessageType.SET_REQUEST_FORWARD, leader, id, this.nodeName);
+                    JsonObject fwd = setForward.serializeToObject(gson); /*convert to intermediate JsonObject to add
+                    more custom fields. */
                     fwd.addProperty("key", key);
                     fwd.addProperty("value", value);
                     brokerManager.sendToBroker(fwd.toString().getBytes(CHARSET));
@@ -194,7 +206,7 @@ public class Node implements Serializable {
                     commandsInFlight.remove(id);
                 }
             }
-        } catch (JSONException e) {
+        } catch (JSONException e) { //invalid json received
             Logger.warning(String.format("Invalid set received at %s", this.nodeName));
             ErrorMessage em = new ErrorMessage(MessageType.SET_RESPONSE, null, msg.getInt("id"), this.nodeName,
                     String.format("You sent me invalid JSON: %s", msg.toString()));
@@ -204,6 +216,9 @@ public class Node implements Serializable {
 
     }
 
+    /* handler for GET messages. if we are the leader, add it to our commandsInFlight and process on the next heartBeat
+   * If you aren't the leader, forward the request to the node you think is the leader -- eventually a leader will get
+    * the request and start processing it, or a node that does not have a leader link to follow will reply with an error. */
     private void handleGetMessage(JSONObject msg) {
         try {
             String key = msg.getString("key");
@@ -236,6 +251,7 @@ public class Node implements Serializable {
         }
     }
 
+    /* handler for requestVote messages. Basically follow the protocol specified in the raft paper */
     private void handleRequestVote(JSONObject msg) {
         RequestVoteMessage m = RequestVoteMessage.deserialize(msg.toString().getBytes(CHARSET), gson);
         int voteTerm = m.getTerm();
@@ -243,7 +259,6 @@ public class Node implements Serializable {
         boolean success = false;
         //if the message is a later term than ours or we have yet to vote
         if (voteTerm > currentTerm || (voteTerm == currentTerm && (votedFor == null || votedFor.equals(candidateId)))) {
-            //TODO voteTerm & currentTerm compared twice
             updateTerm(voteTerm);
             int logTerm = m.getLastLogTerm();
             int logIndex = m.getLastLogIndex();
@@ -257,7 +272,7 @@ public class Node implements Serializable {
         }
         //send result
         RPCMessageResponseBuilder response = new RPCMessageResponseBuilder();
-        response.setDestination(m.source);
+        response.setDestination(m.getSource());
         response.setSource(nodeName);
         response.setTerm(voteTerm);
         response.setType(MessageType.REQUEST_VOTE_RESPONSE);
@@ -265,12 +280,16 @@ public class Node implements Serializable {
         brokerManager.sendToBroker(response.createRPCMessageResponse().serialize(gson));
     }
 
+    /* handler for requestVoteResponse messages. Basically follow the protocol specified in the raft paper except
+     * for a small optimization. If you lose an election by receiving a quorum of NO votes (not just by not receiving enough votes)
+      * It is improbable (I believe impossible, but I can't prove it) that you will never be able to become a leader for
+      * this term, as your log is behind a majority of nodes in the cluster. You should stop trying to become the leader.*/
     private void handleRequestVoteResponse(JSONObject msg) {
 
         RPCMessageResponse response = RPCMessageResponse.deserialize(msg.toString().getBytes(CHARSET),
                 gson);
         if (this.role == Role.CANDIDATE) {
-            this.voteResponses.put(response.source, response.success);
+            this.voteResponses.put(response.getSource(), response.success);
             int numYeas = 0;
             int numNays = 0;
             if (voteResponses.size() > quorum) { //we have enough votes to check for quorum
@@ -280,7 +299,7 @@ public class Node implements Serializable {
                     else
                         numNays++;
                 }
-                if (numYeas > quorum) { //success //
+                if (numYeas > quorum) { //success, i am the leader now
                     Logger.info(String.format("Node %s received a quorum of votes. It is now the leader", this.nodeName));
                     transitionTo(Role.LEADER);
                 } else if (numNays > quorum) { //failed quorum, restart election
@@ -293,39 +312,41 @@ public class Node implements Serializable {
             }
         } else {
             Logger.info(String.format("%s received extraneous request vote response from %s:%s", this.nodeName,
-                    response.source, response.success));
+                    response.getSource(), response.success));
         }
 
 
 
     }
 
+    /* handler for appendEntries messages. Basically follow the protocol specified in the raft paper. Send failures to a client
+     * if a log entry is erased, as that entry will not be committed and was rejected by a new leader. */
     private void handleAppendEntries(JSONObject msg) {
         AppendEntriesMessage m = AppendEntriesMessage.deserialize(msg.toString().getBytes(CHARSET), gson);
         boolean success = false;
-        if (currentTerm <= m.getTerm()) { //TODO: correct?
-            this.leader = m.source;
+        if (currentTerm <= m.getTerm()) {
+            this.leader = m.getSource();
             updateTerm(m.getTerm());
             int nextIndex = m.getPrevLogIndex();
             if (nextIndex < log.size()) {
-                //Logger.info(String.format("%s, leader thinks next is %d, log size is %d", nodeName, nextIndex, log.size()));
-
                 Entry myEntry = log.get(nextIndex);
                 if (myEntry.getTerm() == m.getPrevLogTerm()) {
                     success = true;
                     List<Entry> entries = m.getEntries();
                     if (!log.isEmpty()) {
-                        List<Entry> logTransfer = new ArrayList<>(log);
-
+                        List<Entry> logsToDelete = new ArrayList<>(log);
                         List<Entry> logsToKeep = log.subList(0, nextIndex + 1);
-                        logTransfer.removeAll(logsToKeep);
+                        //keep logs up till prevLogIndex.
+                        logsToDelete.removeAll(logsToKeep);
+                        //logs to delete is all logs to be deleted
                         log = logsToKeep;
-                        failOverwrittenLogEntries(logTransfer);
+                        failOverwrittenLogEntries(logsToDelete);
                     }
                     log.addAll(entries);
 
                     int leaderCommit = m.getLeaderCommit();
                     if (leaderCommit > commitIndex) {
+                        //commit entries that have been committed by master
                         updateCommitIndex(Math.min(leaderCommit, log.size() - 1));
                     }
                 }
@@ -334,7 +355,7 @@ public class Node implements Serializable {
         }
         //send result
         RPCMessageResponseBuilder response = new RPCMessageResponseBuilder();
-        response.setDestination(m.source);
+        response.setDestination(m.getSource());
         response.setSource(nodeName);
         response.setTerm(currentTerm);
         response.setType(MessageType.APPEND_ENTRIES_RESPONSE);
@@ -343,26 +364,28 @@ public class Node implements Serializable {
         brokerManager.sendToBroker(response.createRPCMessageResponse().serialize(gson));
     }
 
+    /* handler for appendEntries messages. Basically follow the protocol specified in the raft paper. update the
+     * state of GET requests in flight once we have reassurance from the rest of the cluster that we are still the leader */
     private void handleAppendEntriesResponse(JSONObject msg) {
         RPCMessageResponse m = RPCMessageResponse.deserialize(msg.toString().getBytes(Charset.defaultCharset()), gson);
         updateTerm(m.term); //if the term changes we swap to follower and exit
         if (role == Role.LEADER) {
             if (m.success) { //on success update recorded state for that node
-                matchIndex.put(m.source, m.logIndex);
-                nextIndex.put(m.source, m.logIndex+1);
+                matchIndex.put(m.getSource(), m.logIndex);
+                nextIndex.put(m.getSource(), m.logIndex + 1);
             } else { //on failure decrement relevant nextIndex for next send
-                Integer next = nextIndex.get(m.source) -1;
+                Integer next = nextIndex.get(m.getSource()) - 1;
                 if (next < 0) {
-                    Logger.error(String.format("%s has a negative nextIndex", m.source));
+                    Logger.error(String.format("%s has a negative nextIndex", m.getSource()));
                 }
-                nextIndex.put(m.source, next);
+                nextIndex.put(m.getSource(), next);
             }
 
-            updateGetRequests(m.source);
+            updateGetRequests(m.getSource());
         } else {
             //drop message if not leader
             Logger.info(String.format("%s received extraneous append entries response from %s:%s", this.nodeName,
-                    m.source, m.success));
+                    m.getSource(), m.success));
         }
 
     }
@@ -398,7 +421,7 @@ public class Node implements Serializable {
                     .setEntries(newEntries)
                     .setLeaderId(this.nodeName)
                     .setPrevLogIndex(nextIndex.get(peer) - 1)
-                    .setPrevLogTerm(log.get(nextIndex.get(peer) - 1).term);
+                    .setPrevLogTerm(log.get(nextIndex.get(peer) - 1).getTerm());
             AppendEntriesMessage aem = aemb.createAppendEntriesMessage();
             brokerManager.sendInterThread(aem.serialize(gson), threadedSocket);
         }
@@ -417,8 +440,8 @@ public class Node implements Serializable {
 
         Entry lastEntry = getLastEntry();
         if (lastEntry != null) {
-            lastLogIndex = lastEntry.index;
-            lastLogTerm = lastEntry.term;
+            lastLogIndex = lastEntry.getIndex();
+            lastLogTerm = lastEntry.getTerm();
         }
 
         RequestVoteMessage rvm;
@@ -523,11 +546,11 @@ public class Node implements Serializable {
     }
 
     private void applyEntryToStateMachine(Entry entry) {
-        if (entry.noop)
-            entry.applied = true;
-        if (!entry.applied) { //have we already applied this?
-            store.put(entry.key, entry.value);
-            entry.applied = true;
+        if (entry.isNoop())
+            entry.setApplied(true);
+        if (!entry.isApplied()) { //have we already applied this?
+            store.put(entry.getKey(), entry.getValue());
+            entry.setApplied(true);
         }
         db.commit();
     }

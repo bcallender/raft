@@ -4,7 +4,9 @@ import java.io.Serializable;
 import java.nio.charset.Charset;
 
 /**
- * Created by brandon on 5/24/16.
+ * Structure of an requestVoteMessage sent when a node times out and requests an election. Instance variables are as
+ * described in the RAFT paper. Subtype of Message Class to get its standard fields (type, destination, source ,id).
+ * Like all subclasses, implements a static deserialize function to translate byte[] payloads into instances of the class.
  */
 public class RequestVoteMessage extends Message implements Serializable {
 
