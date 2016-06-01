@@ -11,10 +11,14 @@ import java.util.concurrent.locks.ReentrantLock;
  */
 public class BrokerManager {
 
+    private final String heartbeatInproc;
+    private final String electionInproc;
     private Node node;
     private ZContext context;
     private ZMQ.Socket subSock;
     private ZMQ.Socket reqSock;
+    private ZMQ.Socket heartBeatSock;
+    private ZMQ.Socket electionStartSocket;
     private ZMQ.Poller poller;
     private String pubEndpoint;
     private String routerEndpoint;
@@ -28,13 +32,14 @@ public class BrokerManager {
         this.pubEndpoint = pubEndpoint;
         this.routerEndpoint = routerEndpoint;
         this.context = new ZContext();
+        nodeName = nodeName.trim();
 
         subSock = this.context.createSocket(ZMQ.SUB);
         subSock.connect(this.pubEndpoint);
         subSock.subscribe(nodeName.getBytes());
         subSock.setIdentity(nodeName.getBytes());
 
-        this.poller = new ZMQ.Poller(2);
+        this.poller = new ZMQ.Poller(4);
         this.poller.register(subSock, ZMQ.Poller.POLLIN);
 
 
@@ -45,6 +50,23 @@ public class BrokerManager {
         this.poller.register(reqSock);
         this.reqSockLock = new ReentrantLock();
 
+        this.heartbeatInproc = "inproc://" + nodeName + ".heartbeat";
+        this.electionInproc = "inproc://" + nodeName + ".election";
+
+        this.heartBeatSock = this.context.createSocket(ZMQ.PAIR);
+        this.heartBeatSock.bind(heartbeatInproc);
+
+
+        this.poller.register(heartBeatSock, ZMQ.Poller.POLLIN);
+
+        this.electionStartSocket = this.context.createSocket(ZMQ.PAIR);
+        this.electionStartSocket.bind(electionInproc);
+
+
+        this.poller.register(electionStartSocket, ZMQ.Poller.POLLIN);
+
+
+
 
         this.debug = debug;
         if (debug)
@@ -54,35 +76,43 @@ public class BrokerManager {
 
 
         this.node = new Node(nodeName, this, startingRole, startingLeader);
-
-        Runtime.getRuntime().addShutdownHook(new Thread() {
-            public void run() {
-                shutdown();
-            }
-        }); //shutdown our ZMQ sockets when the JVM registers a SIGINT
     }
 
     private void handleBrokerMessage(ZMsg message) {
 
     }
 
+
     public void sendToBroker(byte[] message) {
-        reqSockLock.lock();
         byte[] nullFrame = new byte[0]; //need to send a null frame with DEALER to emulate REQ envelope
         this.reqSock.send(nullFrame, ZMQ.SNDMORE);
         this.reqSock.send(message, ZMQ.DONTWAIT);
-        reqSockLock.unlock();
 
-        Logger.trace(String.format("Sent Message %s", new String(message, Charset.defaultCharset())));
 
 
     }
 
+    public void sendInterThread(byte[] message, ZMQ.Socket sock) {
+        sock.send(message, ZMQ.NOBLOCK);
+        Logger.trace(String.format("Sent Message %s", new String(message, Charset.defaultCharset())));
+    }
+
+    public ZMQ.Socket getHeartBeatSock() {
+        ZMQ.Socket ss = context.createSocket(ZMQ.PAIR);
+        ss.connect(heartbeatInproc);
+        return ss;
+    }
+
+    public ZMQ.Socket getElectionStartSocket() {
+        ZMQ.Socket ss = context.createSocket(ZMQ.PAIR);
+        ss.connect(electionInproc);
+        return ss;
+    }
 
     public void start() {
         while (!Thread.currentThread().isInterrupted()) {
             try {
-                poller.poll();
+                poller.poll(1000);
             } catch (IllegalArgumentException ie) {
                 Logger.trace("ZMQ Set an illegal timeout value in its poller");
             } catch (Exception ce) {
@@ -108,25 +138,25 @@ public class BrokerManager {
                 handleBrokerMessage(msg);
             }
 
+            if (poller.pollin(2)) { //got on pair socket, forward
+                byte[] msgToForward = heartBeatSock.recv();
+                sendToBroker(msgToForward);
+            }
+
+            if (poller.pollin(3)) { //got on pair socket, forward
+                byte[] msgToForward = electionStartSocket.recv();
+                sendToBroker(msgToForward);
+            }
+
+
             try {
                 Thread.sleep(1);
             } catch (InterruptedException e) {
                 e.printStackTrace();
             }
-
-
         }
-    }
-
-    public void shutdown() {
-        Logger.warning("Received interrupt from user, shutting down");
-        try {
-            this.subSock.close();
-            this.reqSock.close();
-        } catch (Exception e) { //broad exception because ZMQ can throw things that aren't declared in its *throws* function signature
-            Logger.warning(String.format("Got an error when ZMQ exited (%s)", e.toString()));
-        }
-
+        Logger.warning("Exiting Loop");
+        context.destroy();
     }
 
     public List<String> getPeers() {

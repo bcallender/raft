@@ -4,6 +4,7 @@ import org.json.JSONException;
 import org.json.JSONObject;
 import org.mapdb.DB;
 import org.mapdb.DBMaker;
+import org.zeromq.ZMQ;
 import org.zeromq.ZMsg;
 
 import java.io.File;
@@ -19,7 +20,7 @@ import java.util.concurrent.*;
 public class Node implements Serializable {
 
     private static final Charset CHARSET = Charset.defaultCharset();
-    private static final int HEARTBEAT_INTERVAL = 250;
+    private static final int HEARTBEAT_INTERVAL = 150;
     private final ScheduledExecutorService executorService = Executors.newScheduledThreadPool(1);
     private ScheduledFuture<?> heartBeatSend;
     private ScheduledFuture<?> electionTimeout;
@@ -61,7 +62,7 @@ public class Node implements Serializable {
         this.matchIndex = new TreeMap<>();
         this.commandsInFlight = new ConcurrentHashMap<>();
         this.voteResponses = new HashMap<>();
-        this.heartBeatTimeoutValue = ThreadLocalRandom.current().nextInt(1000, 2500);
+        this.heartBeatTimeoutValue = ThreadLocalRandom.current().nextInt(500, 1000);
         this.gson = new Gson();
         this.quorum = (brokerManager.getPeers().size() + 1) / 2;
 
@@ -105,9 +106,17 @@ public class Node implements Serializable {
     }
 
     void handleMessage(ZMsg message) {
-        assert (message.size() == 3);
-        JSONObject msg = new JSONObject(message.getLast().toString());
-        MessageType type = MessageType.parse(msg.getString("type"));
+        JSONObject msg = null;
+        MessageType type = MessageType.UNKNOWN;
+        try {
+            msg = new JSONObject(message.getLast().toString());
+            type = MessageType.parse(msg.getString("type"));
+        } catch (NullPointerException | JSONException je) {
+            if (message != null)
+                Logger.warning(String.format("Received malformed message : %s", message.toString()));
+            else
+                Logger.warning("Received malformed message : null");
+        }
 
         switch (type) {
             case APPEND_ENTRIES:
@@ -358,7 +367,7 @@ public class Node implements Serializable {
 
     }
 
-    void sendHeartbeats() {
+    void sendHeartbeats(ZMQ.Socket threadedSocket) {
         int n;
         //Logger.info("started hb");
         for (n = commitIndex+1; n < log.size(); n++) {
@@ -391,7 +400,7 @@ public class Node implements Serializable {
                     .setPrevLogIndex(nextIndex.get(peer) - 1)
                     .setPrevLogTerm(log.get(nextIndex.get(peer) - 1).term);
             AppendEntriesMessage aem = aemb.createAppendEntriesMessage();
-            brokerManager.sendToBroker(aem.serialize(gson));
+            brokerManager.sendInterThread(aem.serialize(gson), threadedSocket);
         }
 
         if (acceptedCount > (brokerManager.getPeers().size() + 1) / 2 && log.get(n).getTerm() == currentTerm && n > commitIndex) {
@@ -413,6 +422,7 @@ public class Node implements Serializable {
         }
 
         RequestVoteMessage rvm;
+        ZMQ.Socket sendingSocket = brokerManager.getElectionStartSocket();
 
         for (String peer : brokerManager.getPeers()) {
             rvm = new RequestVoteMessageBuilder()
@@ -423,8 +433,9 @@ public class Node implements Serializable {
                     .setLastLogTerm(lastLogTerm)
                     .setSource(this.nodeName)
                     .createRequestVoteMessage();
-            brokerManager.sendToBroker(rvm.serialize(this.gson));
+            brokerManager.sendInterThread(rvm.serialize(this.gson), sendingSocket);
         }
+        sendingSocket.close();
         this.voteResponses = new HashMap<>();
         voteResponses.put(this.nodeName, true);
         restartElectionTimeout();
@@ -617,7 +628,7 @@ public class Node implements Serializable {
     private void restartHeartBeatTimeout() {
         cancelHeartbeatTimeout();
         this.heartBeatSend =
-                this.executorService.scheduleAtFixedRate(new HeartbeatSender(this),
+                this.executorService.scheduleAtFixedRate(new HeartbeatSender(this, brokerManager),
                         0,
                         HEARTBEAT_INTERVAL,
                         TimeUnit.MILLISECONDS);
