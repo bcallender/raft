@@ -21,14 +21,6 @@ public class Node implements Serializable {
     private static final Charset CHARSET = Charset.defaultCharset();
     private static final int HEARTBEAT_INTERVAL = 250;
     private final ScheduledExecutorService executorService = Executors.newScheduledThreadPool(1);
-    //volatile on all
-    private int commitIndex;
-    private Role role;
-    private String leader;
-    //volatile on master
-    private Map<String, Integer> nextIndex;
-    private Map<String, Integer> matchIndex;
-    private List<Entry> log;
     private ScheduledFuture<?> heartBeatSend;
     private ScheduledFuture<?> electionTimeout;
     private int heartBeatTimeoutValue;
@@ -40,6 +32,16 @@ public class Node implements Serializable {
     private boolean connected;
     private DB db;
     private int quorum;
+
+    //volatile on all
+    private int commitIndex;
+    private Role role;
+    private String leader;
+    //volatile on master
+    private Map<String, Integer> nextIndex;
+    private Map<String, Integer> matchIndex;
+    private List<Entry> log;
+
     //persistent
     private int currentTerm;
     private String votedFor;
@@ -137,8 +139,8 @@ public class Node implements Serializable {
             case HELLO:
                 if (!connected) {
                     connected = true;
-                    JSONObject hr = new JSONObject(String.format("{'type': 'helloResponse', 'source': %s}", nodeName));
-                    brokerManager.sendToBroker(hr.toString().getBytes(CHARSET));
+                    Message m = new Message(MessageType.HELLO_RESPONSE, null, 0, nodeName);
+                    brokerManager.sendToBroker(m.serialize(gson));
                     Logger.info(this.nodeName + " BrokerManager Running");
                     if (this.role == Role.LEADER) //forced to be leader
                         restartHeartBeatTimeout();
