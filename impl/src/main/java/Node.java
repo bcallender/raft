@@ -505,8 +505,8 @@ public class Node implements Serializable {
                 ErrorMessage em = new ErrorMessage(MessageType.GET_RESPONSE, null, entry.getKey(), this.nodeName,
                         "Cannot process request at this time, Leader election in progress");
                 brokerManager.sendToBroker(em.serialize(gson));
+                commandsInFlight.remove(entry.getKey());
             }
-            commandsInFlight.remove(entry.getKey());
 
         }
     }
