@@ -4,6 +4,10 @@ import com.google.gson.annotations.SerializedName;
  * Created by brandon on 5/22/16.
  */
 public enum MessageType {
+    /* This is very messy, but unfortunately necessary. We wanted to adhere to standard enum rules with respect to case
+    * which helps readability. Unfortunately this makes it hard to parse the chistributed messages, so we had to add the
+     * lower case strings in the constructor to get around this. GSON ignores these when it serializes the enums, so
+     * we also have to specify the @SerializedName for gson to make the JSON messages. */
     @SerializedName("get")
     GET("get"),
     @SerializedName("set")

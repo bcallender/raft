@@ -5,7 +5,10 @@ import java.io.Serializable;
 import java.nio.charset.Charset;
 
 /**
- * Abstract message class for attributes that will be a part of any message (type, destination, id, source).
+ * General message class for attributes that will be a part of any message (type, destination, id, source).
+ * This is a superclass of all specific message classes, so it implements serialize, which is the same across all the
+ * MessageTypes. serializeToObject is a helper method used to generate an intermediate JsonObject to add custom fields to it.
+ * We thought this was a good middle ground instead of creating a custom message type for all the different messageTypes.
  */
 public class Message implements Serializable {
 

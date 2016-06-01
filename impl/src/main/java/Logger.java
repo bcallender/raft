@@ -4,17 +4,15 @@
 public class Logger {
 
     public static final String ANSI_RESET = "\u001B[0m";
-    public static final String ANSI_BLACK = "\u001B[30m";
     public static final String ANSI_RED = "\u001B[31m";
     public static final String ANSI_GREEN = "\u001B[32m";
     public static final String ANSI_YELLOW = "\u001B[33m";
     public static final String ANSI_BLUE = "\u001B[34m";
     public static final String ANSI_PURPLE = "\u001B[35m";
-    public static final String ANSI_CYAN = "\u001B[36m";
-    public static final String ANSI_WHITE = "\u001B[37m";
     public static LogLevel masterLogLevel = LogLevel.INFO; //default log level, don't print debug
 
-    private static void log(LogLevel ll, String message) {
+    private static void log(LogLevel ll, String message) { //static implmentation means we don't need instances of logger
+        //it keeps no state, so this is safe.
         if (ll.level >= masterLogLevel.level) { //if the loglevel is higher, dont log it out to stdout
             System.out.println(ll.color + String.format("[%s]: %s", ll, message) + ANSI_RESET);
         }
@@ -44,7 +42,7 @@ public class Logger {
         masterLogLevel = ll;
     }
 
-    public enum LogLevel {
+    public enum LogLevel { //each level has an integer and a color for testing loglevel and pretty printing respectively.
         TRACE(-1, ANSI_BLUE), DEBUG(0, ANSI_GREEN), INFO(1, ANSI_PURPLE), WARNING(2, ANSI_YELLOW), ERROR(3, ANSI_RED);
 
         int level;

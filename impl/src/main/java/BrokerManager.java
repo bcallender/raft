@@ -58,7 +58,7 @@ public class BrokerManager {
             public void run() {
                 shutdown();
             }
-        });
+        }); //shutdown our ZMQ sockets when the JVM registers a SIGINT
     }
 
     private void handleBrokerMessage(ZMsg message) {
@@ -80,7 +80,20 @@ public class BrokerManager {
 
     public void start() {
         while (!Thread.currentThread().isInterrupted()) {
-            poller.poll();
+            try {
+                poller.poll();
+            } catch (IllegalArgumentException ie) {
+                Logger.trace("ZMQ Set an illegal timeout value in its poller");
+            } catch (Exception ce) {
+                /*I'd like to catch a ClosedByInterruptException here, which is caused by multithreaded operation
+                 on the ZMQ socket, or a ClosedChannelException when an inprocess send/req is cancelled by a SIGINT but
+                 since it's a checked exception and not technically thrown by anything in the call
+                 stack, I cannot.
+                 */
+                Logger.trace(String.format("%s -- ZMQ Exception : %s", this.node.getNodeName(), ce.toString()));
+
+            }
+
 
             //subSock registered at index '0'
             if (poller.pollin(0)) {
@@ -105,9 +118,14 @@ public class BrokerManager {
     }
 
     public void shutdown() {
-        Logger.warning("Recieved interrupt from user, shutting down");
-        this.subSock.close();
-        this.reqSock.close();
+        Logger.warning("Received interrupt from user, shutting down");
+        try {
+            this.subSock.close();
+            this.reqSock.close();
+        } catch (Exception e) { //broad exception because ZMQ can throw things that aren't declared in its *throws* function signature
+            Logger.warning(String.format("Got an error when ZMQ exited (%s)", e.toString()));
+        }
+
     }
 
     public List<String> getPeers() {

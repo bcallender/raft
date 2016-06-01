@@ -30,12 +30,37 @@ public class Entry implements Serializable {
         return term;
     }
 
+    public boolean isApplied() {
+        return applied;
+    }
+
+    public boolean isNoop() {
+        return noop;
+    }
+
+    public String getKey() {
+        return key;
+    }
+
+    public String getValue() {
+        return value;
+    }
+
+    public int getIndex() {
+        return index;
+    }
+
+    public int getRequestId() {
+        return requestId;
+    }
+
     public boolean conflictsWith(Entry e) {
         return e.index == this.index && e.term != this.term;
     }
     public boolean moreRecentThan(int otherTerm, int otherIdx) {
         return (term > otherTerm) || (otherTerm == term && index > otherIdx);
     }
+
 
     @Override
     public String toString() {

@@ -132,7 +132,7 @@ public class Node implements Serializable {
         cancelHeartbeatTimeout();
         this.heartBeatSend =
                 this.executorService.scheduleAtFixedRate(new HeartbeatSender(this),
-                        0, //HEARTBEAT_INTERVAL
+                        0,
                         HEARTBEAT_INTERVAL,
                         TimeUnit.MILLISECONDS);
     }
@@ -345,7 +345,12 @@ public class Node implements Serializable {
                     success = true;
                     List<Entry> entries = m.getEntries();
                     if (!log.isEmpty()) {
-                        log = log.subList(0, nextIndex + 1);
+                        List<Entry> logTransfer = new ArrayList<>(log);
+
+                        List<Entry> logsToKeep = log.subList(0, nextIndex + 1);
+                        logTransfer.removeAll(logsToKeep);
+                        log = logsToKeep;
+                        failOverwrittenLogEntries(logTransfer);
                     }
                     log.addAll(entries);
 
@@ -425,7 +430,6 @@ public class Node implements Serializable {
                     .setLeaderId(this.nodeName)
                     .setPrevLogIndex(nextIndex.get(peer) - 1)
                     .setPrevLogTerm(log.get(nextIndex.get(peer) - 1).term);
-            //Logger.info("Built message for " + peer);
             AppendEntriesMessage aem = aemb.createAppendEntriesMessage();
             brokerManager.sendToBroker(aem.serialize(gson));
         }
@@ -433,7 +437,6 @@ public class Node implements Serializable {
         if (acceptedCount > (brokerManager.getPeers().size() + 1) / 2 && log.get(n).getTerm() == currentTerm && n > commitIndex) {
             updateCommitIndex(n);
         }
-        //Logger.info("ended hb");
     }
 
     private void startNewElection() {
@@ -473,7 +476,7 @@ public class Node implements Serializable {
     }
 
     public void transitionTo(Role role) {
-        flushCommandsInFlight();
+        flushGetCommandsInFlight();
         switch (role) {
             case FOLLOWER:
                 cancelHeartbeatTimeout();
@@ -522,16 +525,25 @@ public class Node implements Serializable {
             electionTimeout.cancel(true);
     }
 
-    private void flushCommandsInFlight() {
+    private void failOverwrittenLogEntries(List<Entry> entriesToFail) {
+        for (Entry entry : entriesToFail) {
+            if (!entry.isNoop() && commandsInFlight.containsKey(entry.getRequestId())) {
+                ErrorMessage em = new ErrorMessage(MessageType.SET_RESPONSE, null, entry.getRequestId(), this.nodeName,
+                        String.format("Cannot process request (%s = %s) -- rejected by new leader",
+                                entry.getKey(), entry.getValue()));
+                brokerManager.sendToBroker(em.serialize(gson));
+
+                commandsInFlight.remove(entry.getRequestId());
+            }
+
+        }
+    }
+
+    private void flushGetCommandsInFlight() {
         for (Map.Entry<Integer, ClientCommand> entry : commandsInFlight.entrySet()) {
             if (entry.getValue().getType() == MessageType.GET) {
                 ErrorMessage em = new ErrorMessage(MessageType.GET_RESPONSE, null, entry.getKey(), this.nodeName,
                         "Cannot process request at this time, Leader election in progress");
-                brokerManager.sendToBroker(em.serialize(gson));
-            } else {
-                ErrorMessage em = new ErrorMessage(MessageType.SET_RESPONSE, null, entry.getKey(), this.nodeName,
-                        String.format("Cannot process request (%s = %s) at this time, Leader election in progress",
-                                entry.getValue().getKey(), entry.getValue().getValue()));
                 brokerManager.sendToBroker(em.serialize(gson));
             }
             commandsInFlight.remove(entry.getKey());
@@ -542,7 +554,7 @@ public class Node implements Serializable {
     private void applyEntryToStateMachine(Entry entry) {
         if (entry.noop)
             entry.applied = true;
-        if (!entry.applied) { //have we already applied this? TODO: necessary?
+        if (!entry.applied) { //have we already applied this?
             store.put(entry.key, entry.value);
             entry.applied = true;
         }
@@ -553,11 +565,11 @@ public class Node implements Serializable {
         //persist changes
         if (newIndex == commitIndex)
             return;
-        List<Integer> persistedRequests = new ArrayList<>();
+        List<Entry> persistedRequests = new ArrayList<>();
         for (Entry e : log.subList(commitIndex+1, newIndex + 1)) {
             applyEntryToStateMachine(e);
             Logger.trace(e.toString() + " " + nodeName);
-            persistedRequests.add(e.requestId);
+            persistedRequests.add(e);
         }
 
         Logger.trace(log.toString());
@@ -566,16 +578,18 @@ public class Node implements Serializable {
         if (this.role == Role.LEADER) {
             Logger.info(String.format("Leader %s committed", nodeName));
             //send set responses if you're the leader
-            for (Integer requestId : persistedRequests) {
-                if (commandsInFlight.containsKey(requestId)) {
-                    ClientCommand clientCommand = commandsInFlight.get(requestId);
-                    Message m = new Message(MessageType.SET_RESPONSE, null, requestId, this.nodeName);
+            for (Entry request : persistedRequests) {
+                if (!request.isNoop()) {
+                    Message m = new Message(MessageType.SET_RESPONSE, null, request.getRequestId(), this.nodeName);
                     JsonObject msgToSend = m.serializeToObject(gson);
-                    msgToSend.addProperty("key", clientCommand.getKey());
-                    msgToSend.addProperty("value", clientCommand.getValue());
+                    msgToSend.addProperty("key", request.getKey());
+                    msgToSend.addProperty("value", request.getValue());
                     brokerManager.sendToBroker(msgToSend.toString().getBytes(CHARSET));
-                    commandsInFlight.remove(requestId);
+                    if (commandsInFlight.containsKey(request.getRequestId())) {
+                        commandsInFlight.remove(request.getRequestId());
+                    }
                 }
+
 
             }
             Logger.info(String.format("Sent set responses as leader %s", nodeName));
