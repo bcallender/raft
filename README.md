@@ -2,14 +2,13 @@
 
 To run: 
 
-```* cd ~/impl
+* cd ~/impl
 * chmod a+x install-mvn.sh
 * ./install-mvn.sh
 * source ~/.bashrc
 * mvn install
 * cd target
 * run chistributed
-```
 
 
 
