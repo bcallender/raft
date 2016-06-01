@@ -38,7 +38,6 @@ public class Node {
     private boolean connected;
     private DB db; //MapDB instance used for creating databases
     private int quorum; //number of nodes needed for quorum
-
     //volatile on all -- standard raft
     private int commitIndex;
     private Role role;
@@ -47,13 +46,11 @@ public class Node {
     private Map<String, Integer> nextIndex; //maps instead of arrays for easier use.
     private Map<String, Integer> matchIndex;
     private List<Entry> log;
-
     //persistent
     private int currentTerm;
     private String votedFor;
     //requestVote State
     private HashMap<String, Boolean> voteResponses; //keep track of responses so we know if we've been elected leader
-
     public Node(String nodeName, BrokerManager brokerManager, String startRole, String startingLeader) {
         this.nodeName = nodeName;
         this.brokerManager = brokerManager;
@@ -390,18 +387,20 @@ public class Node {
 
     }
 
+    /* compute values for sending heartbeats and construct appendEntries.  Basically follow the protocol specified in
+        the raft paper. figures out the value of N as in figure 2 to figure out whether or not we can commit new log entries
+        follow the logic as described in raft for incrementing or decrementing match/nextIndex and build appendEntries.
+        Try to see if we can commit anything new on the master (we have quorum consensus on a new commitIndex)*/
     void sendHeartbeats(ZMQ.Socket threadedSocket) {
-        int n;
-        //Logger.info("started hb");
+        int n; //as described in Fig. 2
         for (n = commitIndex+1; n < log.size(); n++) {
             if (log.get(n).getTerm() == currentTerm)
                 break;
         }
         int acceptedCount = 1;
         for (String peer : brokerManager.getPeers()) {
-            //Logger.info("sending hb to " + peer);
             if (matchIndex.get(peer) >= n) {
-                acceptedCount++;
+                acceptedCount++; //we have accepted on this node the op at index n
             }
             List<Entry> newEntries = new ArrayList<>();
             if (!log.isEmpty()) {
@@ -427,10 +426,12 @@ public class Node {
         }
 
         if (acceptedCount > (brokerManager.getPeers().size() + 1) / 2 && log.get(n).getTerm() == currentTerm && n > commitIndex) {
-            updateCommitIndex(n);
+            updateCommitIndex(n); //we've accepted a value on a majority of nodes, time to commit it
         }
     }
 
+    /*Our election timeout has occurred, time to start a new election. Follow the specifications in the raft paper on how
+    * to construct the requestVote message*/
     private void startNewElection() {
         Logger.info(String.format("Election timeout occurred, timeout value for %s is %d", nodeName, heartBeatTimeoutValue));
         currentTerm++;
@@ -440,15 +441,16 @@ public class Node {
 
         Entry lastEntry = getLastEntry();
         if (lastEntry != null) {
-            lastLogIndex = lastEntry.getIndex();
+            lastLogIndex = lastEntry.getIndex(); //get these values for the creation of the requestVoteMessage
             lastLogTerm = lastEntry.getTerm();
         }
 
-        RequestVoteMessage rvm;
+        RequestVoteMessageBuilder builder = new RequestVoteMessageBuilder();
         ZMQ.Socket sendingSocket = brokerManager.getElectionStartSocket();
 
+        //construct request
         for (String peer : brokerManager.getPeers()) {
-            rvm = new RequestVoteMessageBuilder()
+            RequestVoteMessage rvm = builder
                     .setTerm(currentTerm)
                     .setCandidateId(nodeName)
                     .setDestination(peer)
@@ -460,7 +462,7 @@ public class Node {
         }
         sendingSocket.close();
         this.voteResponses = new HashMap<>();
-        voteResponses.put(this.nodeName, true);
+        voteResponses.put(this.nodeName, true); //note that you voted for yourself in the election
         restartElectionTimeout();
     }
 
@@ -469,13 +471,15 @@ public class Node {
         return log.isEmpty() ? null : log.get(log.size() - 1);
     }
 
+    /*Transition to new roles. Always flush get commands in flight -- they don't maintain state and cannot be consistently
+    * served during a leader election. */
     void transitionTo(Role role) {
         flushGetCommandsInFlight();
         switch (role) {
             case FOLLOWER:
-                cancelHeartbeatTimeout();
+                cancelHeartbeatTimeout(); //no longer a leader, no need to send heartBeats
                 if (connected && this.leader == null) {
-                    restartElectionTimeout();
+                    restartElectionTimeout(); //we need to receive appendEntries, restart electon timeout.
                 }
                 this.role = role;
                 break;
@@ -488,14 +492,15 @@ public class Node {
                 }
                 this.role = role;
                 this.votedFor = null;
-                startNewElection();
+                startNewElection(); //restart election timeout, send new votes
                 break;
 
             case LEADER:
+                //reset leader state as presented in raft.
                 Logger.info(String.format("%s from %s to %s", nodeName, this.role, role));
                 Logger.info("new leader has log" + log.toString());
                 if (this.role != Role.CANDIDATE)
-                    Logger.warning(nodeName + ",state transition to LEADER from FOLLOWER");
+                    Logger.warning(nodeName + " ,state transition to LEADER from FOLLOWER");
                 this.role = role;
                 cancelElectionTimeout();
                 // resetting the nextIndex and matchIndex map
@@ -514,11 +519,8 @@ public class Node {
         }
     }
 
-    private void cancelElectionTimeout() {
-        if (electionTimeout != null)
-            electionTimeout.cancel(true);
-    }
-
+    /*if node has any set commands waiting on a response that match the requestId of overwritten entries in the log,
+    send back fail notices.*/
     private void failOverwrittenLogEntries(List<Entry> entriesToFail) {
         for (Entry entry : entriesToFail) {
             if (!entry.isNoop() && commandsInFlight.containsKey(entry.getRequestId())) {
@@ -533,6 +535,7 @@ public class Node {
         }
     }
 
+    /*if node has any getCommands waiting on a response, send back errors -- a leader election is in progress.*/
     private void flushGetCommandsInFlight() {
         for (Map.Entry<Integer, ClientCommand> entry : commandsInFlight.entrySet()) {
             if (entry.getValue().getType() == MessageType.GET) {
@@ -545,6 +548,7 @@ public class Node {
         }
     }
 
+    /* if the entry is to be applied, commit to the file backed database*/
     private void applyEntryToStateMachine(Entry entry) {
         if (entry.isNoop())
             entry.setApplied(true);
@@ -555,6 +559,8 @@ public class Node {
         db.commit();
     }
 
+    /*For all nodes: persist log entries between commitIndex and newIndex
+    * For leaders -- send SET responses for log entries successfully committed. */
     private void updateCommitIndex(int newIndex) {
         //persist changes
         if (newIndex == commitIndex)
@@ -591,6 +597,8 @@ public class Node {
         this.commitIndex = newIndex;
     }
 
+    /*When the leader gets heartbeat responses, it can determine that it is still the leader and safely reply to GET
+    * commands in flight. */
     private void updateGetRequests(String peer) {
         ClientCommand cmd;
         String key;
@@ -600,11 +608,11 @@ public class Node {
             cmd = entry.getValue();
             int id = entry.getKey();
             key = cmd.getKey();
-            if (cmd.getType() == MessageType.GET) {
+            if (cmd.getType() == MessageType.GET) {//we've gotten a leadership response from this peer
                 cmd.addResponse(peer);
             }
             if (cmd.getResponsesSize() >= quorum) {
-                //return the latest value from the store
+                //return the latest value from the store if we've received responses from a quorum of nodes.
                 if (store.containsKey(key)) {
                     Message m = new Message(MessageType.GET_RESPONSE, null, id, this.nodeName);
                     JsonObject getResp = m.serializeToObject(gson);
@@ -625,6 +633,13 @@ public class Node {
         }
     }
 
+    //cancel the election timer, will no longer spawn new thread when timer runs out
+    private void cancelElectionTimeout() {
+        if (electionTimeout != null)
+            electionTimeout.cancel(true);
+    }
+
+    //spawn new schedule for election timeouts that will make a new thread when the timer runs out
     private void startElectionTimeout() {
         this.electionTimeout =
                 this.executorService.scheduleAtFixedRate(new ElectionTimeoutHandler(this),
@@ -636,6 +651,7 @@ public class Node {
 
     }
 
+    //restart the election timeout, received heartbeat from leader
     private void restartElectionTimeout() {
         cancelElectionTimeout();
         heartBeatTimeoutValue = ThreadLocalRandom.current().nextInt(700, 2000);
@@ -648,6 +664,7 @@ public class Node {
 
     }
 
+    //begin sending heartbeats, then schedule them for each heartbeat interval
     private void restartHeartBeatTimeout() {
         cancelHeartbeatTimeout();
         this.heartBeatSend =
@@ -663,8 +680,8 @@ public class Node {
         }
     }
 
+    //the three different states a node can have
     enum Role {FOLLOWER, CANDIDATE, LEADER}
-
 
 
 }
