@@ -1,3 +1,6 @@
+
+/* We thought that the appendEntries message has a huge constructor, so we made a builder for it.
+* */
 import java.util.ArrayList;
 import java.util.List;
 

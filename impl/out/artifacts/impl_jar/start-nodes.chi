@@ -7,4 +7,12 @@ start -n node-6 -- --force-leader node-5
 start -n node-7	-- --force-leader node-5
 start -n node-8	-- --force-leader node-5
 
+create_partition -n p1L -p node-5,node-6,node-7,node-8
+wait -t 5.0
+
+set -n node-5 -k A -v 42
+
+remove_partition -n p1L
+get -n node-5 -k A
+get -n node-1 -k A
 

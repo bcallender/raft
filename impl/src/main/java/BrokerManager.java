@@ -30,7 +30,7 @@ public class BrokerManager {
         this.context = new ZContext();
 
         subSock = this.context.createSocket(ZMQ.SUB);
-        subSock.connect(pubEndpoint);
+        subSock.connect(this.pubEndpoint);
         subSock.subscribe(nodeName.getBytes());
         subSock.setIdentity(nodeName.getBytes());
 
@@ -39,7 +39,8 @@ public class BrokerManager {
 
 
         reqSock = this.context.createSocket(ZMQ.DEALER);
-        reqSock.connect(routerEndpoint);
+        //ZMQ DEALER type makes it easier to send asynchronously as opposed to ZMQ.REQ, messages don't need to be sent in lockstep
+        reqSock.connect(this.routerEndpoint);
         reqSock.setIdentity(nodeName.getBytes());
         this.poller.register(reqSock);
         this.reqSockLock = new ReentrantLock();

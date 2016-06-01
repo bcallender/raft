@@ -18,17 +18,17 @@ import java.util.concurrent.*;
  */
 public class Node implements Serializable {
 
-    public static final Charset CHARSET = Charset.defaultCharset();
+    private static final Charset CHARSET = Charset.defaultCharset();
     private static final int HEARTBEAT_INTERVAL = 250;
     private final ScheduledExecutorService executorService = Executors.newScheduledThreadPool(1);
     //volatile on all
-    int commitIndex;
-    Role role;
-    String leader;
+    private int commitIndex;
+    private Role role;
+    private String leader;
     //volatile on master
-    Map<String, Integer> nextIndex;
-    Map<String, Integer> matchIndex;
-    List<Entry> log;
+    private Map<String, Integer> nextIndex;
+    private Map<String, Integer> matchIndex;
+    private List<Entry> log;
     private ScheduledFuture<?> heartBeatSend;
     private ScheduledFuture<?> electionTimeout;
     private int heartBeatTimeoutValue;
@@ -40,11 +40,9 @@ public class Node implements Serializable {
     private boolean connected;
     private DB db;
     private int quorum;
-
     //persistent
     private int currentTerm;
     private String votedFor;
-
     //requestVote State
     private HashMap<String, Boolean> voteResponses;
 
@@ -100,50 +98,11 @@ public class Node implements Serializable {
 
     }
 
-    public String getNodeName() {
+    String getNodeName() {
         return nodeName;
     }
 
-    private void startElectionTimeout() {
-        this.electionTimeout =
-                this.executorService.scheduleAtFixedRate(new ElectionTimeoutHandler(this),
-                        heartBeatTimeoutValue,
-                        heartBeatTimeoutValue,
-                        TimeUnit.MILLISECONDS);
-        Logger.debug(String.format("Started Election Timeout, Election timeout value for %s is %d", nodeName, heartBeatTimeoutValue));
-
-
-    }
-
-    private void restartElectionTimeout() {
-        cancelElectionTimeout();
-        heartBeatTimeoutValue = ThreadLocalRandom.current().nextInt(700, 2000);
-        this.electionTimeout =
-                this.executorService.scheduleAtFixedRate(new ElectionTimeoutHandler(this),
-                        heartBeatTimeoutValue,
-                        heartBeatTimeoutValue,
-                        TimeUnit.MILLISECONDS);
-        Logger.debug(String.format("Restarted Election Timeout, Election timeout value for %s is %d", nodeName, heartBeatTimeoutValue));
-
-    }
-
-
-    private void restartHeartBeatTimeout() {
-        cancelHeartbeatTimeout();
-        this.heartBeatSend =
-                this.executorService.scheduleAtFixedRate(new HeartbeatSender(this),
-                        0,
-                        HEARTBEAT_INTERVAL,
-                        TimeUnit.MILLISECONDS);
-    }
-
-    private void cancelHeartbeatTimeout() {
-        if (this.heartBeatSend != null) {
-            this.heartBeatSend.cancel(true);
-        }
-    }
-
-    public void handleMessage(ZMsg message) {
+    void handleMessage(ZMsg message) {
         assert (message.size() == 3);
         JSONObject msg = new JSONObject(message.getLast().toString());
         MessageType type = MessageType.parse(msg.getString("type"));
@@ -373,8 +332,7 @@ public class Node implements Serializable {
         brokerManager.sendToBroker(response.createRPCMessageResponse().serialize(gson));
     }
 
-
-    public void handleAppendEntriesResponse(JSONObject msg) {
+    private void handleAppendEntriesResponse(JSONObject msg) {
         RPCMessageResponse m = RPCMessageResponse.deserialize(msg.toString().getBytes(Charset.defaultCharset()), gson);
         updateTerm(m.term); //if the term changes we swap to follower and exit
         if (role == Role.LEADER) {
@@ -398,7 +356,7 @@ public class Node implements Serializable {
 
     }
 
-    public void sendHeartbeats() {
+    void sendHeartbeats() {
         int n;
         //Logger.info("started hb");
         for (n = commitIndex+1; n < log.size(); n++) {
@@ -475,7 +433,7 @@ public class Node implements Serializable {
         return log.isEmpty() ? null : log.get(log.size() - 1);
     }
 
-    public void transitionTo(Role role) {
+    void transitionTo(Role role) {
         flushGetCommandsInFlight();
         switch (role) {
             case FOLLOWER:
@@ -631,6 +589,46 @@ public class Node implements Serializable {
         }
     }
 
+    private void startElectionTimeout() {
+        this.electionTimeout =
+                this.executorService.scheduleAtFixedRate(new ElectionTimeoutHandler(this),
+                        heartBeatTimeoutValue,
+                        heartBeatTimeoutValue,
+                        TimeUnit.MILLISECONDS);
+        Logger.debug(String.format("Started Election Timeout, Election timeout value for %s is %d", nodeName, heartBeatTimeoutValue));
 
-    public enum Role {FOLLOWER, CANDIDATE, LEADER}
+
+    }
+
+    private void restartElectionTimeout() {
+        cancelElectionTimeout();
+        heartBeatTimeoutValue = ThreadLocalRandom.current().nextInt(700, 2000);
+        this.electionTimeout =
+                this.executorService.scheduleAtFixedRate(new ElectionTimeoutHandler(this),
+                        heartBeatTimeoutValue,
+                        heartBeatTimeoutValue,
+                        TimeUnit.MILLISECONDS);
+        Logger.debug(String.format("Restarted Election Timeout, Election timeout value for %s is %d", nodeName, heartBeatTimeoutValue));
+
+    }
+
+    private void restartHeartBeatTimeout() {
+        cancelHeartbeatTimeout();
+        this.heartBeatSend =
+                this.executorService.scheduleAtFixedRate(new HeartbeatSender(this),
+                        0,
+                        HEARTBEAT_INTERVAL,
+                        TimeUnit.MILLISECONDS);
+    }
+
+    private void cancelHeartbeatTimeout() {
+        if (this.heartBeatSend != null) {
+            this.heartBeatSend.cancel(true);
+        }
+    }
+
+    enum Role {FOLLOWER, CANDIDATE, LEADER}
+
+
+
 }
