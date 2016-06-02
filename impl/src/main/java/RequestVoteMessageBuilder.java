@@ -1,3 +1,6 @@
+/* We thought that the message had a huge constructor, so intellij wrote us a builder.
+* */
+
 public class RequestVoteMessageBuilder {
     private final MessageType type = MessageType.REQUEST_VOTE;
     private String destination;
