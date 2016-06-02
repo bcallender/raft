@@ -9,6 +9,7 @@ import org.zeromq.ZMsg;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.channels.ClosedByInterruptException;
 import java.nio.charset.Charset;
 import java.util.*;
 import java.util.concurrent.*;
@@ -57,7 +58,8 @@ public class Node {
         this.connected = false;
         this.currentTerm = 0;
         this.votedFor = null;
-        this.log = new ArrayList<>();
+        this.log = new CopyOnWriteArrayList<>(); /*sometimes (very rarely) we concurrently add log entries while reading
+        with an iterator. This is probably overkill, but solves our ConcurrentModification exception. */
         this.commitIndex = 0;
         this.role = Role.FOLLOWER;
         this.nextIndex = new TreeMap<>();
@@ -76,6 +78,8 @@ public class Node {
             this.db = DBMaker.fileDB(dbFile)
                     .fileMmapEnableIfSupported()
                     .closeOnJvmShutdown()
+                    .transactionDisable() //we always commit after writes
+                    .asyncWriteEnable()
                     .make();
             this.store = db.hashMap(this.nodeName);
         } catch (IOException e) {
@@ -391,7 +395,7 @@ public class Node {
         the raft paper. figures out the value of N as in figure 2 to figure out whether or not we can commit new log entries
         follow the logic as described in raft for incrementing or decrementing match/nextIndex and build appendEntries.
         Try to see if we can commit anything new on the master (we have quorum consensus on a new commitIndex)*/
-    void sendHeartbeats(ZMQ.Socket threadedSocket) {
+    void sendHeartbeats(ZMQ.Socket threadedSocket) throws ClosedByInterruptException {
         int n; //as described in Fig. 2
         for (n = commitIndex+1; n < log.size(); n++) {
             if (log.get(n).getTerm() == currentTerm)
