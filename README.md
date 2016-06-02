@@ -1,4 +1,10 @@
 # raft -- raft -- raft your boat, gently down the consensus stream
+Brandon Callender
+bmcallender@uchicago.edu
+Tasnim Rahman
+rahmant@uchicago.edu
+Anthony Crespo
+acrespo@uchicago.edu
 
 To run: 
 
