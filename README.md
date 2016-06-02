@@ -61,3 +61,8 @@ Tasnim: State Transition management, client GET/SET state data management
 
 # but then...
 ALL: Debugging, Refactoring/Fixing major architectural flaws that became evident. 
+
+# Caveats
+
+* Occasionally, the -- --force-leader and -- --force role commands will not result in the selected node staying the leader -- another node might time out waiting
+on a heartbeat from the leader node if it is spawned by chistributed at an awkward time window.
