@@ -1,0 +1,50 @@
+start -n node-1 -- --force-role LEADER
+start -n node-2 -- --force-leader node-1
+start -n node-3 -- --force-leader node-1
+start -n node-4 -- --force-leader node-1
+start -n node-5 -- --force-leader node-1
+start -n node-6 -- --force-leader node-1
+start -n node-7 -- --force-leader node-1
+start -n node-8 -- --force-leader node-1
+
+create_partition -n small -p node-6,node-7,node-8
+
+set -n node-1 -k A -v 42
+set -n node-2 -k B -v 43
+set -n node-3 -k C -v 32
+set -n node-4 -k D -v 21
+set -n node-1 -k A -v 44
+set -n node-2 -k B -v 46
+set -n node-3 -k C -v 40
+set -n node-4 -k D -v 12
+set -n node-1 -k A -v 42
+set -n node-2 -k B -v 43
+set -n node-3 -k C -v 32
+set -n node-4 -k D -v 21
+set -n node-1 -k A -v 42
+set -n node-2 -k B -v 43
+set -n node-3 -k C -v 32
+set -n node-4 -k D -v 21
+set -n node-1 -k A -v 42
+set -n node-2 -k B -v 43
+set -n node-3 -k C -v 32
+set -n node-4 -k D -v 21
+set -n node-1 -k A -v 42
+set -n node-2 -k B -v 43
+set -n node-3 -k C -v 32
+set -n node-4 -k D -v 21
+
+wait -t 2.5
+
+get -n node-1 -k A
+get -n node-2 -k B
+get -n node-3 -k C
+get -n node-4 -k D
+
+set -n node-6 -k A -v 1
+set -n node-7 -k B -v 2
+set -n node-8 -k C -v 3
+
+wait -t 2.5
+
+remove_partition -n small
