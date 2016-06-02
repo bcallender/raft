@@ -74,6 +74,4 @@ ALL: Debugging, Refactoring/Fixing major architectural flaws that became evident
 on a heartbeat from the leader node if it is spawned by chistributed at an awkward time window.
 
 
-* There is a narrow window in which if a leader is partitioned/failed after committing a value but before telling the other nodes its been committed, when the new leader
-is elected, it may send out a duplicate set response -- this doesn't effect safety, it will never fail a commit a leader has already said was committed, but is 
-technically a flaw
+* There is a narrow window in which if a leader is partitioned/failed after committing a value but before telling the other nodes its been committed, when the new leader is elected, it may send out a duplicate set response -- this doesn't effect safety, it will never fail a commit a leader has already said was committed, but is technically a flaw
