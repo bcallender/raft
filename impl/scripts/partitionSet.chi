@@ -4,12 +4,14 @@ start -n node-3 -- --force-leader node-5
 start -n node-4 -- --force-leader node-5
 start -n node-5 -- --force-role LEADER
 start -n node-6 -- --force-leader node-5
-start -n node-7 -- --force-leader node-5
-start -n node-8 -- --force-leader node-5
-wait -t 2
+start -n node-7    -- --force-leader node-5
+start -n node-8    -- --force-leader node-5
+wait -t 2.0
+fail -n node-1
 create_partition -n small -p node-5,node-6,node-7
 set -n node-5 -k key -v value
-wait -t 1
-remove_partition -n small
-wait -t 1
+wait -t 1.0
+remove_partition -n small --deliver
+recover_node -n node-1
+wait -t 3.0
 get -n node-1 -k key

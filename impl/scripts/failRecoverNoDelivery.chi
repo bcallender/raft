@@ -21,7 +21,7 @@ fail -n node-1
 
 wait -t 2.0
 
-recover -n node-1 --deliver
+recover -n node-1
 
 get -n node-1 -k key
 

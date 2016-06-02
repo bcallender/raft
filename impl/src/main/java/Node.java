@@ -21,6 +21,8 @@ import java.util.concurrent.*;
  */
 public class Node {
 
+    public static final int electionLowerBound = 500;
+    public static final int electionUpperBound = 1000;
     private static final Charset CHARSET = Charset.defaultCharset();
     private static final int HEARTBEAT_INTERVAL = 150; //milliseconds between heartbeats
     private final ScheduledExecutorService executorService = Executors.newScheduledThreadPool(1);
@@ -66,7 +68,7 @@ public class Node {
         this.matchIndex = new TreeMap<>();
         this.commandsInFlight = new ConcurrentHashMap<>();
         this.voteResponses = new HashMap<>();
-        this.heartBeatTimeoutValue = ThreadLocalRandom.current().nextInt(500, 1000);
+        this.heartBeatTimeoutValue = ThreadLocalRandom.current().nextInt(electionLowerBound, electionUpperBound);
         this.gson = new Gson();
         this.quorum = (brokerManager.getPeers().size() + 1) / 2;
 
@@ -584,7 +586,7 @@ public class Node {
             Logger.info(String.format("Leader %s committed", nodeName));
             //send set responses if you're the leader
             for (Entry request : persistedRequests) {
-                if (!request.isNoop()) {
+                if (!request.isNoop() && commandsInFlight.containsKey(request.getRequestId())) {
                     Message m = new Message(MessageType.SET_RESPONSE, null, request.getRequestId(), this.nodeName);
                     JsonObject msgToSend = m.serializeToObject(gson);
                     msgToSend.addProperty("key", request.getKey());
@@ -659,7 +661,7 @@ public class Node {
     //restart the election timeout, received heartbeat from leader
     private void restartElectionTimeout() {
         cancelElectionTimeout();
-        heartBeatTimeoutValue = ThreadLocalRandom.current().nextInt(500, 1000);
+        heartBeatTimeoutValue = ThreadLocalRandom.current().nextInt(electionLowerBound, electionUpperBound);
         this.electionTimeout =
                 this.executorService.scheduleAtFixedRate(new ElectionTimeoutHandler(this),
                         heartBeatTimeoutValue,
