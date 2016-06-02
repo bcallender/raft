@@ -586,7 +586,7 @@ public class Node {
             Logger.info(String.format("Leader %s committed", nodeName));
             //send set responses if you're the leader
             for (Entry request : persistedRequests) {
-                if (!request.isNoop() && commandsInFlight.containsKey(request.getRequestId())) {
+                if (!request.isNoop()) {
                     Message m = new Message(MessageType.SET_RESPONSE, null, request.getRequestId(), this.nodeName);
                     JsonObject msgToSend = m.serializeToObject(gson);
                     msgToSend.addProperty("key", request.getKey());
