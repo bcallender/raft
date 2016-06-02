@@ -31,3 +31,26 @@ ElectionTimeoutHandler/Heartbeat Sender are Runnables that are spawned by the el
 Control Flow:
 
 Messages are captured by the brokerManager and sent to the Node for processsing. The Node handles all message processing logic and contacts the message brokers to send messages between nodes and to chistributed. Nodes can spawn threads that communicate back to the master thread (using ZMQ PAIR sockets) when they need to use the main socket to send messages to chistributed.
+
+Libraries Used:
+org.json : JSON serialization library primarily used because it makes it very easy to serialze a POJO into an intermediate object we can then add properties to.
+This is much harder in gson.
+
+com.gson: JSON serialization library used because it is very good at serializing and deserializing JSON to and from Java Classes but isn't particularly flexible
+with intermediate object/custom objects we didn't want to define a class for.
+
+com.JCommander: command line argument parsing library for Java
+
+org.mapDB -- a simple file-backed store that implements the map interface, making it easy to wire up to the application. it's overkill, but we disable transactions
+and just commit on every write to avoid inconsistency.
+
+org.jeromq -- library to communicate with zeromq
+
+
+Work Division -- Initial split:
+Brandon: ZMQ, requestVote, requestVote Response, Stable storage database management, JSON/message handling scaffolding
+Anthony: AppendEntries, AppendEntriesResponse, log/commit logic/management
+Tasnim: State Transition management, client GET/SET state data management
+
+but then...
+ALL: Debugging, Refactoring/Fixing major architectural flaws that became evident. 
