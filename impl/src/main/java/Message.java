@@ -14,7 +14,7 @@ public class Message implements Serializable {
 
     private MessageType type;
     private String destination;
-    private int id;
+    private int id; //not all messages (esp inter-node messages will have an id set).
     private String source;
 
     public Message(MessageType type, String destination, int id, String source) {

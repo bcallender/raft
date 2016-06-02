@@ -16,7 +16,7 @@ import java.util.concurrent.*;
 
 /**
  * The node class implements all logic needed at the node level in the Raft paper. A dispatcher in handleMessage
- * sends messages to handler functions, which are defined for all valid messagee types. Uses a scheduled threadPool to
+ * sends messages to handler functions, which are defined for all valid message types. Uses a scheduled threadPool to
  * handle sending heartbeats and timing out on election timeouts.
  */
 public class Node {
@@ -496,6 +496,7 @@ public class Node {
                 }
                 this.role = role;
                 this.votedFor = null;
+                this.leader = null; //--lessen window when sets can be not responded to.
                 startNewElection(); //restart election timeout, send new votes
                 break;
 
@@ -658,7 +659,7 @@ public class Node {
     //restart the election timeout, received heartbeat from leader
     private void restartElectionTimeout() {
         cancelElectionTimeout();
-        heartBeatTimeoutValue = ThreadLocalRandom.current().nextInt(700, 2000);
+        heartBeatTimeoutValue = ThreadLocalRandom.current().nextInt(500, 1000);
         this.electionTimeout =
                 this.executorService.scheduleAtFixedRate(new ElectionTimeoutHandler(this),
                         heartBeatTimeoutValue,
