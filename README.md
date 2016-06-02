@@ -31,11 +31,11 @@ Entry in the log of a raft node. Contains two special fields (noop and applied) 
 leader elections and commiting entires to stable storage respectively. Also contains the requestId of the client command
 to make sure that responses are always sent to requests, regardless of leader elections.
 
-Logger is a basic static logger.
+Logger is a basic static logger -- was initially going to have more customization to differentiate it from java.utils.Logging but time restraints.
 
 ElectionTimeoutHandler/Heartbeat Sender are Runnables that are spawned by the election timeout scheduledFuture and heartbeatInterval scheduledFeature to start a new election or send heartbeats respectively.
 
-Control Flow:
+# Control Flow:
 
 Messages are captured by the brokerManager and sent to the Node for processsing. The Node handles all message processing logic and contacts the message brokers to send messages between nodes and to chistributed. Nodes can spawn threads that communicate back to the master thread (using ZMQ PAIR sockets) when they need to use the main socket to send messages to chistributed.
 
@@ -54,10 +54,10 @@ and just commit on every write to avoid inconsistency.
 org.jeromq -- library to communicate with zeromq
 
 
-Work Division -- Initial split:
+# Work Division -- Initial split:
 Brandon: ZMQ, requestVote, requestVote Response, Stable storage database management, JSON/message handling scaffolding
 Anthony: AppendEntries, AppendEntriesResponse, log/commit logic/management
 Tasnim: State Transition management, client GET/SET state data management
 
-but then...
+# but then...
 ALL: Debugging, Refactoring/Fixing major architectural flaws that became evident. 
