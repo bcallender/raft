@@ -2,7 +2,7 @@
 
 To run: 
 
-* cd ~/impl
+* cd impl
 * chmod a+x install-mvn.sh
 * ./install-mvn.sh
 * source ~/.bashrc
@@ -25,6 +25,7 @@ that maintains information on SET/GET commands in flight, a Log (List) and the v
 standard in the raft paper. 
 
 AppendEntriesMessage, RequestVoteMessage, RPCMessageResponse, and ErrorMessages are subclasses of the Message class. They are serializable/de-serializable to/from JSON using GSON.
+Their specific variables, when they differ from the the raft reference, are documented.
 
 Entry in the log of a raft node. Contains two special fields (noop and applied) which are used in our implmentation of
 leader elections and commiting entires to stable storage respectively. Also contains the requestId of the client command
